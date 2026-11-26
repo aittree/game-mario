@@ -14,6 +14,7 @@ import pygame
 from ..config import (
     ACCENT,
     APP_NAME,
+    APP_NAME_EN,
     BRICK,
     CANVAS_H,
     CANVAS_W,
@@ -40,6 +41,7 @@ from ..config import (
     VIEW_COLS,
 )
 from ..entities.base import AnimState, PowerState
+from ..keymap import KEY_LEGEND, key_name
 from ..levels import LevelInfo
 from ..resource import resource_path
 from .anim import (
@@ -50,8 +52,11 @@ from .anim import (
     clip_frame,
     player_clip,
 )
-from .theme import text as draw_text
+from .theme import font as get_font, text as draw_text
 from .widgets import Button, draw_button
+
+# 菜单布局单一来源：调间距只改这里，避免散落魔法数字漂移
+MENU_LOGO_SIZE = 120
 
 if TYPE_CHECKING:                       # 只读快照类型：运行期不反向依赖 game
     from ..game import LevelSnapshot
@@ -84,8 +89,8 @@ class Renderer:
         }
         self._enemy_frames = self._slice_sheet("enemies.png", 48, 48)
         self._item_frames = self._slice_sheet("items.png", 48, 48)
-        self._menu_bg: pygame.Surface | None = None
         self._logo: pygame.Surface | None = None
+        self._menu_anim = None   # 菜单动态视差背景（懒加载）
 
     # —— 资源加载 ——
 
@@ -143,6 +148,8 @@ class Renderer:
         """推进动画计时器；与模型推进无关，只影响画面。"""
         self.time += dt
         self._player_t += dt
+        if self._menu_anim is not None:
+            self._menu_anim.update(dt)
 
     # —— 世界 ——
 
@@ -344,23 +351,37 @@ class Renderer:
     def draw_menu(self, surface: pygame.Surface, profile: Profile,
                   selected: int = 0) -> list[Button]:
         self._draw_menu_bg(surface)
+        # —— 菜单垂直布局（单一来源：调间距只改这里）——
+        logo_y = 40
+        sub_y = 192
+        title_y = 250
+        best_y = 310
+        btn_w, btn_h = 300, 50
+        btn_x = CANVAS_W // 2 - btn_w // 2
+        btn_y0 = 356
+        btn_pitch = 60
+        foot_y = 688
+
         logo = self._logo_image()
         if logo is not None:
-            surface.blit(logo, (CANVAS_W // 2 - 140, 26))
-        draw_text(surface, APP_NAME, 42, ACCENT, (CANVAS_W // 2, 350),
-                  anchor="center", bold=True)
+            surface.blit(logo, (CANVAS_W // 2 - logo.get_width() // 2, logo_y))
+        draw_text(surface, APP_NAME_EN.upper(), 16, HUD_SUB,
+                  (CANVAS_W // 2, sub_y), anchor="center")
+        self._draw_pixel_title(surface, APP_NAME, CANVAS_W // 2, title_y)
         draw_text(surface, f"最高分 {profile.best_score:06d}", 22, HUD_SUB,
-                  (CANVAS_W // 2, 390), anchor="center")
+                  (CANVAS_W // 2, best_y), anchor="center")
         entries = (("开始游戏", "start"), ("选择关卡", "open_select"),
                    ("设置", "open_settings"), ("排行榜", "open_ranking"),
                    ("退出", "quit"))
         buttons = []
         for i, (label, action) in enumerate(entries):
-            rect = pygame.Rect(CANVAS_W // 2 - 150, 428 + i * 56, 300, 48)
+            rect = pygame.Rect(btn_x, btn_y0 + i * btn_pitch, btn_w, btn_h)
             button = Button(action, label, rect)
             buttons.append(button)
-            draw_button(surface, button, i == selected)
-        draw_text(surface, f"v{VERSION}", 18, HUD_SUB, (20, 700))
+            draw_button(surface, button, i == selected, self.time)
+        draw_text(surface, "↑↓ 选择 / Enter 确认", 16, HUD_SUB,
+                  (CANVAS_W // 2, foot_y), anchor="center")
+        draw_text(surface, f"v{VERSION}", 16, HUD_SUB, (24, foot_y))
         return buttons
 
     def draw_level_select(self, surface: pygame.Surface, profile: Profile,
@@ -379,31 +400,57 @@ class Renderer:
         draw_button(surface, back, selected == len(levels))
         return buttons
 
+    @staticmethod
+    def _draw_key_legend(surface: pygame.Surface, x: int, y: int) -> int:
+        """绘制只读按键说明（设置界面与暂停设置共用），返回结束 y。"""
+        draw_text(surface, "按键说明", 22, ACCENT, (x, y),
+                  anchor="topleft", bold=True)
+        y += 34
+        for desc, keys in KEY_LEGEND:
+            draw_text(surface, desc, 19, HUD_TEXT, (x, y), anchor="topleft")
+            draw_text(surface, " / ".join(key_name(k) for k in keys), 19,
+                      HUD_SUB, (x + 320, y), anchor="topleft")
+            y += 30
+        extras = (("暂停 / 返回", "ESC / P"), ("选择 / 确认", "↑ ↓ / 回车"))
+        for desc, keys in extras:
+            draw_text(surface, desc, 19, HUD_TEXT, (x, y), anchor="topleft")
+            draw_text(surface, keys, 19, HUD_SUB, (x + 320, y), anchor="topleft")
+            y += 30
+        return y
+
     def draw_settings(self, surface: pygame.Surface, settings: Settings,
                       selected: int = 0) -> list[Button]:
         self._draw_menu_bg(surface)
-        panel = pygame.Rect(260, 120, 760, 480)
+        panel = pygame.Rect(180, 40, 920, 640)
         self._panel(surface, panel)
-        draw_text(surface, "设置", 40, ACCENT, (CANVAS_W // 2, panel.y + 46),
+        cx = panel.centerx
+        draw_text(surface, "设置", 40, ACCENT, (cx, panel.y + 42),
                   anchor="center", bold=True)
         buttons: list[Button] = []
-        rows = (("音乐音量", "music", settings.music), ("音效音量", "sfx", settings.sfx))
+        rows = (("音乐音量", "music", settings.music),
+                ("音效音量", "sfx", settings.sfx))
         for row, (label, key, value) in enumerate(rows):
-            y = 220 + row * 80
-            draw_text(surface, label, 24, HUD_TEXT, (330, y + 22), anchor="midleft")
-            minus = Button(f"{key}-", "−", pygame.Rect(700, y, 52, 44))
-            plus = Button(f"{key}+", "＋", pygame.Rect(848, y, 52, 44))
+            y = panel.y + 112 + row * 54
+            draw_text(surface, label, 24, HUD_TEXT,
+                      (panel.x + 50, y + 22), anchor="midleft")
+            minus = Button(f"{key}-", "−", pygame.Rect(panel.x + 460, y, 52, 44))
+            plus = Button(f"{key}+", "＋", pygame.Rect(panel.x + 620, y, 52, 44))
             buttons.extend((minus, plus))
             draw_button(surface, minus, selected == len(buttons) - 2)
             draw_button(surface, plus, selected == len(buttons) - 1)
-            draw_text(surface, str(value), 28, ACCENT, (800, y + 22),
-                      anchor="center", bold=True)
+            draw_text(surface, str(value), 28, ACCENT,
+                      (panel.x + 540, y + 22), anchor="center", bold=True)
         mode_label = "全屏" if settings.fullscreen else "窗口"
         full = Button("fullscreen", f"显示模式：{mode_label}",
-                      pygame.Rect(700, 380, 200, 44))
+                      pygame.Rect(panel.x + 460, panel.y + 226, 212, 44))
         buttons.append(full)
         draw_button(surface, full, selected == len(buttons) - 1)
-        back = Button("back", "返回主菜单", pygame.Rect(CANVAS_W // 2 - 130, 500, 260, 50))
+        pygame.draw.line(surface, (72, 92, 130),
+                         (panel.x + 40, panel.y + 296),
+                         (panel.right - 40, panel.y + 296), 1)
+        self._draw_key_legend(surface, panel.x + 50, panel.y + 322)
+        back = Button("back", "返回主菜单",
+                      pygame.Rect(cx - 130, panel.bottom - 66, 260, 48))
         buttons.append(back)
         draw_button(surface, back, selected == len(buttons) - 1)
         return buttons
@@ -460,31 +507,81 @@ class Renderer:
             draw_button(surface, button, i == selected)
         return buttons
 
+    def draw_pause_settings(self, surface: pygame.Surface, settings: Settings,
+                            selected: int = 0) -> list[Button]:
+        """暂停态下的设置浮层：按键说明 + 音量/显示模式即时调整。"""
+        dim = pygame.Surface(self.size, pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 185))
+        surface.blit(dim, (0, 0))
+        panel = pygame.Rect((CANVAS_W - 760) // 2, (CANVAS_H - 600) // 2, 760, 600)
+        self._panel(surface, panel)
+        draw_text(surface, "设置", 36, ACCENT, (panel.centerx, panel.y + 38),
+                  anchor="center", bold=True)
+        buttons: list[Button] = []
+        rows = (("音乐音量", "music", settings.music),
+                ("音效音量", "sfx", settings.sfx))
+        for row, (label, key, value) in enumerate(rows):
+            y = panel.y + 100 + row * 50
+            draw_text(surface, label, 22, HUD_TEXT,
+                      (panel.x + 44, y + 20), anchor="midleft")
+            minus = Button(f"{key}-", "−", pygame.Rect(panel.x + 430, y, 48, 40))
+            plus = Button(f"{key}+", "＋", pygame.Rect(panel.x + 590, y, 48, 40))
+            buttons.extend((minus, plus))
+            draw_button(surface, minus, selected == len(buttons) - 2)
+            draw_button(surface, plus, selected == len(buttons) - 1)
+            draw_text(surface, str(value), 26, ACCENT,
+                      (panel.x + 510, y + 20), anchor="center", bold=True)
+        mode_label = "全屏" if settings.fullscreen else "窗口"
+        full = Button("fullscreen", f"显示模式：{mode_label}",
+                      pygame.Rect(panel.x + 430, panel.y + 212, 188, 40))
+        buttons.append(full)
+        draw_button(surface, full, selected == len(buttons) - 1)
+        pygame.draw.line(surface, (72, 92, 130),
+                         (panel.x + 36, panel.y + 282),
+                         (panel.right - 36, panel.y + 282), 1)
+        self._draw_key_legend(surface, panel.x + 44, panel.y + 302)
+        back = Button("cancel", "返回",
+                      pygame.Rect(panel.centerx - 110, panel.bottom - 58, 220, 42))
+        buttons.append(back)
+        draw_button(surface, back, selected == len(buttons) - 1)
+        return buttons
+
     # —— 菜单辅助 ——
 
     def _draw_menu_bg(self, surface: pygame.Surface) -> None:
-        bg = self._menu_bg
-        if bg is None:
-            try:
-                image = self._load_image("bg_menu.png").convert()
-                bg = pygame.transform.smoothscale(image, (CANVAS_W, CANVAS_H))
-            except (OSError, pygame.error):
-                bg = pygame.Surface((CANVAS_W, CANVAS_H))
-                bg.fill((16, 22, 38))
-            self._menu_bg = bg
-        surface.blit(bg, (0, 0))
-        shade = pygame.Surface((CANVAS_W, CANVAS_H), pygame.SRCALPHA)
-        shade.fill((6, 10, 20, 70))
-        surface.blit(shade, (0, 0))
+        # 纯代码绘制的暗色视差动态背景（无贴图、无抗锯齿）
+        if self._menu_anim is None:
+            from .menu_bg import MenuBackground
+            self._menu_anim = MenuBackground((CANVAS_W, CANVAS_H))
+        self._menu_anim.draw(surface)
 
     def _logo_image(self) -> pygame.Surface | None:
         if self._logo is None:
             try:
                 image = self._load_image("logo.png")
-                self._logo = pygame.transform.smoothscale(image, (280, 280))
+                self._logo = pygame.transform.scale(
+                    image, (MENU_LOGO_SIZE, MENU_LOGO_SIZE))   # nearest 像素锐利
             except (OSError, pygame.error):
                 return None
         return self._logo
+
+    def _draw_pixel_title(self, surface: pygame.Surface, text: str,
+                          cx: int, cy: int) -> None:
+        """呼吸缩放 + 硬边像素描边阴影的标题。"""
+        scale = 1.0 + 0.05 * (0.5 + 0.5 * math.sin(self.time * 1.6))
+        base = int(52 * scale)
+        f = get_font(base, bold=True)
+        color = ACCENT
+        # 硬边描边阴影（偏移实色块，逐方向重绘，无 blur）
+        offsets = ((-3, -3), (3, -3), (-3, 3), (3, 3), (0, -4), (0, 4),
+                   (-4, 0), (4, 0))
+        img_shadow = f.render(text, False, (8, 10, 24))
+        sw, sh = img_shadow.get_size()
+        dx = sw // 2
+        for ox, oy in offsets:
+            surface.blit(img_shadow, (cx - dx + ox, cy - sh // 2 + oy))
+        img = f.render(text, False, color)
+        surface.blit(img, (cx - img.get_width() // 2, cy - img.get_height() // 2))
 
     @staticmethod
     def _panel(surface: pygame.Surface, rect: pygame.Rect) -> None:

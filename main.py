@@ -8,12 +8,15 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 
 import pygame
 
 from src.audio import Audio
 from src.config import (
     APP_NAME,
+    CANVAS_H,
+    CANVAS_W,
     CLEAR_HOLD_MS,
     CLEAR_SLIDE_MS,
     FPS,
@@ -96,6 +99,13 @@ class GameApp:
         self.effects = Effects()
         self.running = True
 
+        # 黑幕转场：淡出(到黑)→执行关卡切换→淡入(回显)
+        self._fade_alpha = 0
+        self._fade_phase: str | None = None        # None / "out" / "in"
+        self._fade_pending: Callable[[], None] | None = None
+        self._black = pygame.Surface((CANVAS_W, CANVAS_H))
+        self._black.fill((0, 0, 0))
+
     # —— 主循环 ——
 
     def run(self) -> None:
@@ -138,6 +148,9 @@ class GameApp:
                 return
             if key in (pygame.K_ESCAPE, pygame.K_p):
                 if self.dialog == "restart":
+                    self.dialog = "pause"
+                    self.selected = 0
+                elif self.dialog == "pause_settings":
                     self.dialog = "pause"
                     self.selected = 0
                 else:
@@ -207,8 +220,8 @@ class GameApp:
         if action == "quit":
             self.running = False
         elif action == "start":
-            self._start_level(min(self.profile.unlocked, len(self.levels)) - 1,
-                              LIVES_START, 0)
+            self._request_start(min(self.profile.unlocked, len(self.levels)) - 1,
+                                LIVES_START, 0)
         elif action == "open_select":
             self._change_screen("select", min(self.profile.unlocked, len(self.levels)) - 1)
         elif action == "open_settings":
@@ -225,6 +238,9 @@ class GameApp:
             self._toggle_fullscreen()
         elif action == "resume":
             self._resume_game()
+        elif action == "pause_settings":
+            self.dialog = "pause_settings"
+            self.selected = 0
         elif action == "restart":
             self.dialog = "restart"
             self.selected = 0
@@ -232,7 +248,7 @@ class GameApp:
             self.dialog = None
             if self.session is not None:
                 lives = self.session.snapshot().lives
-                self._start_level(self.level_index, lives, self.level_base_score)
+                self._request_start(self.level_index, lives, self.level_base_score)
         elif action == "cancel":
             self.dialog = "pause"
             self.selected = 0
@@ -248,22 +264,22 @@ class GameApp:
             return
         if index >= self.profile.unlocked or not self.levels[index].available:
             return
-        self._start_level(index, LIVES_START, 0)
+        self._request_start(index, LIVES_START, 0)
 
     def _next_level(self) -> None:
         if self.result_snap is None:
             return
         if self.level_index + 1 < len(self.levels):
-            self._start_level(self.level_index + 1,
-                              self.result_snap.lives, self.result_snap.score)
+            self._request_start(self.level_index + 1,
+                                self.result_snap.lives, self.result_snap.score)
 
     def _retry(self) -> None:
         """结算页重玩：通关后保留生命与已得分数，失败后从头开始。"""
         if self.screen == "clear" and self.result_snap is not None:
-            self._start_level(self.level_index, self.result_snap.lives,
-                              self.level_base_score)
+            self._request_start(self.level_index, self.result_snap.lives,
+                                self.level_base_score)
         else:
-            self._start_level(self.level_index, LIVES_START, 0)
+            self._request_start(self.level_index, LIVES_START, 0)
 
     # —— 界面切换 ——
 
@@ -311,6 +327,8 @@ class GameApp:
             settings.sfx = max(0, min(100, settings.sfx + delta))
             self.audio.set_sfx_volume(settings.sfx)
         save_profile(self.profile)
+        if self.dialog is not None:              # 暂停态下保持 BGM 暂停，避免调高音量时误播放
+            self.audio.pause()
 
     # —— 关卡流程 ——
 
@@ -344,10 +362,40 @@ class GameApp:
         self.audio.stop_bgm()
         self.audio.play_bgm(info.theme)
 
+    # —— 黑幕转场 ——
+
+    _FADE_SPEED = 900                              # alpha/秒，约 0.28s 到全黑
+
+    def _request_start(self, index: int, lives: int, score: int) -> None:
+        """请求切入关卡：先淡出到黑，再切换，最后淡入。"""
+        if self._fade_phase is not None:
+            return
+        self._fade_pending = lambda idx=index, lv=lives, sc=score: \
+            self._start_level(idx, lv, sc)
+        self._fade_alpha = 0
+        self._fade_phase = "out"
+
+    def _advance_fade(self, dt: float) -> None:
+        if self._fade_phase == "out":
+            self._fade_alpha = min(255, self._fade_alpha + int(self._FADE_SPEED * dt))
+            if self._fade_alpha >= 255 and self._fade_pending is not None:
+                cb = self._fade_pending
+                self._fade_pending = None
+                cb()                                   # 全黑后切换关卡
+                self._fade_phase = "in"
+        elif self._fade_phase == "in":
+            self._fade_alpha = max(0, self._fade_alpha - int(self._FADE_SPEED * dt))
+            if self._fade_alpha <= 0:
+                self._fade_phase = None
+
     def _update(self, dt: float) -> None:
+        self._advance_fade(dt)
+        if self._fade_phase == "out":
+            # 淡出期间保持当前界面动画，不推进游戏逻辑
+            self.renderer.update(dt)
+            return
         if self.screen != "game" or self.session is None or self.dialog is not None:
-            if self.screen in ("clear", "over"):
-                self.renderer.update(dt)
+            self.renderer.update(dt)              # 菜单/设置等界面推进背景与按钮动画
             return
         intent = self.keymap.sample()
         self.accumulator += dt
@@ -433,6 +481,9 @@ class GameApp:
             self._draw_game(canvas)
         elif self.screen in ("clear", "over"):
             self._draw_result(canvas)
+        if self._fade_alpha > 0:
+            self._black.set_alpha(self._fade_alpha)
+            canvas.blit(self._black, (0, 0))
 
     def _draw_game(self, canvas: pygame.Surface) -> None:
         if self.session is None:
@@ -445,8 +496,12 @@ class GameApp:
                      f"关卡 {snap.level_id}　时间 {snap.time_units}"]
             self.buttons = self.renderer.draw_overlay(
                 canvas, "暂停", lines,
-                [("继续", "resume"), ("重玩本关", "restart"), ("返回主菜单", "menu")],
+                [("继续", "resume"), ("设置", "pause_settings"),
+                 ("重玩本关", "restart"), ("返回主菜单", "menu")],
                 self.selected)
+        elif self.dialog == "pause_settings":
+            self.buttons = self.renderer.draw_pause_settings(
+                canvas, self.profile.settings, self.selected)
         elif self.dialog == "restart":
             self.buttons = self.renderer.draw_overlay(
                 canvas, "确认重玩", ["重玩后本关分数清零，生命保持不变。"],

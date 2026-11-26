@@ -19,6 +19,33 @@ DOWN = (pygame.K_DOWN, pygame.K_s)
 
 GAME_KEYS = MOVE_LEFT + MOVE_RIGHT + JUMP + SPRINT + FIRE + DOWN
 
+# 设置 / 暂停界面展示用（只读，单一来源；改键位只改这里与上面的常量）
+KEY_LEGEND: tuple[tuple[str, tuple[int, ...]], ...] = (
+    ("左右移动", MOVE_LEFT + MOVE_RIGHT),
+    ("下蹲", DOWN),
+    ("跳跃", JUMP),
+    ("冲刺", SPRINT),
+    ("射击 / 火球", FIRE),
+)
+
+
+def key_name(key: int) -> str:
+    """把 pygame 键值转成展示用名称（用于设置 / 暂停界面）。"""
+    special = {
+        pygame.K_LEFT: "←", pygame.K_RIGHT: "→",
+        pygame.K_UP: "↑", pygame.K_DOWN: "↓",
+        pygame.K_SPACE: "空格",
+        pygame.K_RETURN: "回车", pygame.K_KP_ENTER: "回车",
+        pygame.K_ESCAPE: "ESC",
+        pygame.K_LSHIFT: "L-Shift", pygame.K_RSHIFT: "R-Shift",
+        pygame.K_LCTRL: "L-Ctrl", pygame.K_RCTRL: "R-Ctrl",
+        pygame.K_LALT: "L-Alt", pygame.K_RALT: "R-Alt",
+    }
+    if key in special:
+        return special[key]
+    name = pygame.key.name(key) or ""
+    return name.upper() if len(name) == 1 else name
+
 
 class Keymap:
     def __init__(self):
