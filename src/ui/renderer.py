@@ -358,7 +358,7 @@ class Renderer:
         best_y = 310
         btn_w, btn_h = 300, 50
         btn_x = CANVAS_W // 2 - btn_w // 2
-        btn_y0 = 356
+        btn_y0 = 420
         btn_pitch = 60
         foot_y = 688
 
@@ -370,8 +370,7 @@ class Renderer:
         self._draw_pixel_title(surface, APP_NAME, CANVAS_W // 2, title_y)
         draw_text(surface, f"最高分 {profile.best_score:06d}", 22, HUD_SUB,
                   (CANVAS_W // 2, best_y), anchor="center")
-        entries = (("开始游戏", "start"), ("选择关卡", "open_select"),
-                   ("设置", "open_settings"), ("排行榜", "open_ranking"),
+        entries = (("开始游戏", "start"), ("设置", "open_settings"),
                    ("退出", "quit"))
         buttons = []
         for i, (label, action) in enumerate(entries):
@@ -387,15 +386,21 @@ class Renderer:
     def draw_level_select(self, surface: pygame.Surface, profile: Profile,
                           levels: list[LevelInfo], selected: int = 0) -> list[Button]:
         self._draw_menu_bg(surface)
-        draw_text(surface, "选择关卡", 40, ACCENT, (CANVAS_W // 2, 62),
+        total = len(levels)
+        unlocked = min(profile.unlocked, total)
+        playable = [i for i, info in enumerate(levels)
+                    if i < profile.unlocked and info.available]
+        continue_index = playable[-1] if playable else 0
+        draw_text(surface, "继续游玩", 40, ACCENT, (CANVAS_W // 2, 58),
                   anchor="center", bold=True)
-        buttons = []
+        buttons: list[Button] = []
         for i, info in enumerate(levels):
-            rect = pygame.Rect(110 + (i % 2) * 540, 132 + (i // 2) * 196, 520, 168)
-            unlocked = i < profile.unlocked and info.available
-            buttons.append(Button(f"level:{i}", info.name, rect, enabled=unlocked))
-            self._draw_level_card(surface, rect, info, profile, unlocked, i == selected)
-        back = Button("back", "返回主菜单", pygame.Rect(CANVAS_W // 2 - 130, 632, 260, 50))
+            rect = pygame.Rect(110 + (i % 2) * 540, 176 + (i // 2) * 196, 520, 168)
+            is_open = i < profile.unlocked and info.available
+            buttons.append(Button(f"level:{i}", info.name, rect, enabled=is_open))
+            self._draw_level_card(surface, rect, info, profile, is_open,
+                                  i == selected, i == continue_index)
+        back = Button("back", "返回主菜单", pygame.Rect(CANVAS_W // 2 - 130, 620, 260, 50))
         buttons.append(back)
         draw_button(surface, back, selected == len(levels))
         return buttons
@@ -454,32 +459,6 @@ class Renderer:
         buttons.append(back)
         draw_button(surface, back, selected == len(buttons) - 1)
         return buttons
-
-    def draw_ranking(self, surface: pygame.Surface, profile: Profile,
-                     _selected: int = 0) -> list[Button]:
-        self._draw_menu_bg(surface)
-        panel = pygame.Rect(230, 80, 820, 580)
-        self._panel(surface, panel)
-        draw_text(surface, "排行榜", 40, ACCENT, (CANVAS_W // 2, panel.y + 44),
-                  anchor="center", bold=True)
-        headers = ((300, "名次"), (450, "分数"), (610, "金币"), (720, "关卡"), (880, "日期"))
-        for x, label in headers:
-            draw_text(surface, label, 18, HUD_SUB, (x, 168), anchor="midleft")
-        pygame.draw.line(surface, (72, 92, 130), (270, 186), (1010, 186), 1)
-        if not profile.records:
-            draw_text(surface, "暂无记录，先玩一局吧", 22, HUD_SUB,
-                      (panel.centerx, 330), anchor="center")
-        for i, record in enumerate(profile.records[:10]):
-            y = 200 + i * 38
-            color = HUD_TEXT if i < 3 else HUD_SUB
-            draw_text(surface, f"{i + 1}", 20, ACCENT if i < 3 else color, (300, y))
-            draw_text(surface, f"{record.score:06d}", 20, color, (450, y), bold=i < 3)
-            draw_text(surface, f"×{record.coins}", 20, color, (610, y))
-            draw_text(surface, record.level, 20, color, (720, y))
-            draw_text(surface, record.time, 20, color, (880, y))
-        back = Button("back", "返回主菜单", pygame.Rect(CANVAS_W // 2 - 130, 596, 260, 48))
-        draw_button(surface, back, True)
-        return [back]
 
     def draw_overlay(self, surface: pygame.Surface, title: str, lines: list[str],
                      actions: list[tuple[str, str]] | None = None,
@@ -592,7 +571,7 @@ class Renderer:
 
     def _draw_level_card(self, surface: pygame.Surface, rect: pygame.Rect,
                          info: LevelInfo, profile: Profile, unlocked: bool,
-                         selected: bool) -> None:
+                         selected: bool, is_continue: bool = False) -> None:
         fill = (24, 34, 54, 235) if unlocked else (22, 24, 30, 215)
         layer = pygame.Surface(rect.size, pygame.SRCALPHA)
         pygame.draw.rect(layer, fill, layer.get_rect(), border_radius=16)
@@ -614,6 +593,9 @@ class Renderer:
         elif not unlocked:
             draw_text(surface, "未解锁", 22, (140, 148, 162),
                       (rect.right - 24, rect.y + 40), anchor="topright")
+        elif is_continue:
+            draw_text(surface, "继续", 20, ACCENT,
+                      (rect.right - 22, rect.y + 38), anchor="topright", bold=True)
 
     @staticmethod
     def _format_time(seconds: float) -> str:

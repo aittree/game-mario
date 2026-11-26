@@ -1,4 +1,4 @@
-"""存档、进度与排行榜（docs/03 §8.2）。
+"""存档与进度（docs/03 §8.2）。
 
 路径：%APPDATA%\\SuperTreeio\\save.json。
 容错原则：读失败一律降级为默认 Profile；写失败只记录，不抛出。
@@ -11,7 +11,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from .config import APP_ID, MAX_RECORDS
+from .config import APP_ID
 
 APP_DIR = Path(os.environ.get("APPDATA", ".")) / APP_ID
 SAVE_FILE = APP_DIR / "save.json"
@@ -27,29 +27,15 @@ class Settings:
         self.sfx = sfx
 
 
-class Record:
-    def __init__(self, score: int, coins: int, level: str, time: str):
-        self.score = score
-        self.coins = coins
-        self.level = level
-        self.time = time            # "MM-DD HH:MM"
-
-
 class Profile:
     def __init__(self, best_score: int = 0, coins_total: int = 0,
                  unlocked: int = 1, best_times: dict[str, float] | None = None,
-                 records: list[Record] | None = None,
                  settings: Settings | None = None):
         self.best_score = best_score
         self.coins_total = coins_total
         self.unlocked = unlocked
         self.best_times = best_times if best_times is not None else {}
-        self.records = records if records is not None else []
         self.settings = settings if settings is not None else Settings()
-
-    def qualifies(self, score: int) -> bool:
-        return score > 0 and (len(self.records) < MAX_RECORDS
-                             or score > self.records[-1].score)
 
 
 def _log(message: str) -> None:
@@ -67,22 +53,6 @@ def _as_int(value, default: int = 0) -> int:
 
 def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
-
-
-def _parse_record(raw: object) -> Record | None:
-    if not isinstance(raw, dict):
-        return None
-    score = _as_int(raw.get("score"))
-    if score <= 0:
-        return None
-    level = raw.get("level")
-    stamp = raw.get("time")
-    return Record(
-        score=score,
-        coins=_as_int(raw.get("coins")),
-        level=level if isinstance(level, str) else "",
-        time=stamp if isinstance(stamp, str) else "",
-    )
 
 
 def load_profile() -> Profile:
@@ -105,16 +75,6 @@ def load_profile() -> Profile:
             if isinstance(level_id, str) and isinstance(seconds, (int, float)) and seconds > 0:
                 profile.best_times[level_id] = float(seconds)
 
-    records = data.get("records")
-    if isinstance(records, list):
-        parsed: list[Record] = []
-        for raw in records:
-            entry = _parse_record(raw)
-            if entry is not None:
-                parsed.append(entry)
-        parsed.sort(key=lambda rec: rec.score, reverse=True)
-        profile.records = parsed[:MAX_RECORDS]
-
     settings = data.get("settings")
     if isinstance(settings, dict):
         profile.settings = Settings(
@@ -131,10 +91,6 @@ def save_profile(profile: Profile) -> None:
         "coins_total": profile.coins_total,
         "unlocked": _clamp(profile.unlocked, 1, 4),
         "best_times": profile.best_times,
-        "records": [
-            {"score": rec.score, "coins": rec.coins, "level": rec.level, "time": rec.time}
-            for rec in profile.records[:MAX_RECORDS]
-        ],
         "settings": {
             "fullscreen": profile.settings.fullscreen,
             "music": _clamp(profile.settings.music, 0, 100),
@@ -148,22 +104,6 @@ def save_profile(profile: Profile) -> None:
         os.replace(TMP_FILE, SAVE_FILE)
     except OSError as exc:
         _log(f"save_profile failed: {exc}")
-
-
-def insert_record(profile: Profile, score: int, coins: int, level: str) -> int | None:
-    """插入排行榜，返回 0 起名次；未入榜返回 None。"""
-    if not profile.qualifies(score):
-        return None
-    record = Record(score=score, coins=coins, level=level,
-                    time=datetime.now().strftime("%m-%d %H:%M"))
-    index = 0
-    while index < len(profile.records) and profile.records[index].score >= score:
-        index += 1
-    if index >= MAX_RECORDS:
-        return None
-    profile.records.insert(index, record)
-    del profile.records[MAX_RECORDS:]
-    return index
 
 
 def record_time(profile: Profile, level_id: str, seconds: float) -> bool:

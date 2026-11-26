@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """程序入口与主循环（docs/02 §2 应用层 / docs/03 §10）。
 
-界面状态：menu / select / settings / ranking / game / clear / over；
+界面状态：menu / select / settings / game / clear / over；
 暂停与二次确认用 `dialog` 模态，除游戏外任何界面都不推进游戏时间。
 """
 
@@ -30,7 +30,6 @@ from src.levels import LevelInfo, load_level_data, load_level_index
 from src.resource import resource_path
 from src.storage import (
     Profile,
-    insert_record,
     load_profile,
     record_time,
     save_profile,
@@ -220,14 +219,11 @@ class GameApp:
         if action == "quit":
             self.running = False
         elif action == "start":
-            self._request_start(min(self.profile.unlocked, len(self.levels)) - 1,
-                                LIVES_START, 0)
-        elif action == "open_select":
-            self._change_screen("select", min(self.profile.unlocked, len(self.levels)) - 1)
+            playable = [i for i, info in enumerate(self.levels)
+                        if i < self.profile.unlocked and info.available]
+            self._change_screen("select", playable[-1] if playable else 0)
         elif action == "open_settings":
             self._change_screen("settings")
-        elif action == "open_ranking":
-            self._change_screen("ranking")
         elif action == "back":
             self._go_menu()
         elif action.startswith("level:"):
@@ -437,11 +433,10 @@ class GameApp:
         new_best = record_time(self.profile, snap.level_id, self.play_seconds)
         unlocked = unlock_next(self.profile, self.level_index, len(self.levels))
         self.profile.best_score = max(self.profile.best_score, snap.score)
-        rank = insert_record(self.profile, snap.score, snap.coins, snap.level_id)
         save_profile(self.profile)
         self.result_snap = snap
         self.result = {"level": info, "best": new_best, "unlocked": unlocked,
-                       "rank": rank, "all_clear": self.level_index >= len(self.levels) - 1}
+                       "all_clear": self.level_index >= len(self.levels) - 1}
         self.screen = "clear"
         self.dialog = None
         self.selected = 0
@@ -452,10 +447,9 @@ class GameApp:
     def _finish_game_over(self, snap) -> None:
         info = self.levels[self.level_index]
         self.profile.best_score = max(self.profile.best_score, snap.score)
-        rank = insert_record(self.profile, snap.score, snap.coins, snap.level_id)
         save_profile(self.profile)
         self.result_snap = snap
-        self.result = {"level": info, "rank": rank, "all_clear": False}
+        self.result = {"level": info, "all_clear": False}
         self.screen = "over"
         self.dialog = None
         self.selected = 0
@@ -475,8 +469,6 @@ class GameApp:
         elif self.screen == "settings":
             self.buttons = self.renderer.draw_settings(
                 canvas, self.profile.settings, self.selected)
-        elif self.screen == "ranking":
-            self.buttons = self.renderer.draw_ranking(canvas, self.profile)
         elif self.screen == "game":
             self._draw_game(canvas)
         elif self.screen in ("clear", "over"):
@@ -532,9 +524,6 @@ class GameApp:
             best_time = self.profile.best_times.get(snap.level_id)
             best_note = "（新纪录）" if result.get("best") else ""
             lines.append(f"本关最佳 {_format_time(best_time or self.play_seconds)}{best_note}")
-            rank = result.get("rank")
-            if isinstance(rank, int):
-                lines.append(f"进入排行榜：第 {rank + 1} 名")
             actions = []
             if not result.get("all_clear"):
                 actions.append(("下一关", "next"))
@@ -544,11 +533,6 @@ class GameApp:
             lines = [f"{level_label}",
                      f"最终分数 {snap.score:06d}　金币 ×{snap.coins}",
                      f"用时 {_format_time(self.play_seconds)}"]
-            rank = result.get("rank")
-            if isinstance(rank, int):
-                lines.append(f"排行榜第 {rank + 1} 名")
-            else:
-                lines.append("未进入排行榜")
             actions = [("重新开始", "retry"), ("返回主菜单", "menu")]
         self.buttons = self.renderer.draw_overlay(canvas, title, lines, actions,
                                                   self.selected)

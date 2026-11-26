@@ -74,8 +74,7 @@ SCORE_BRICK = 50
 SCORE_BUMP = 50
 SCORE_CLEAR_FIXED = 1000
 SCORE_PER_TIME = 10
-MAX_NAME_LEN = 8          # 排行榜无昵称，此项留给 P2 的玩家名
-MAX_RECORDS = 10
+MAX_NAME_LEN = 8          # 留给 P2 的玩家名
 
 # —— 相机 ——
 CAM_DEAD_MIN, CAM_DEAD_MAX = 0.38, 0.55
