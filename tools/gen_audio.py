@@ -1,17 +1,17 @@
-"""生成 4 首 BGM 与 14 个音效（22050 Hz / 单声道 / 16-bit）。
+"""生成 4 首 BGM 与 14 个音效（22050 Hz / 单声道;8-bit 位深压碎后存为 16-bit WAV）。
 
 文件名与时长见 docs/08 §3；BGM 首尾各做 0.3 s 淡入淡出，便于无缝循环。
 """
 
 from __future__ import annotations
 
-import math
 import wave
 from pathlib import Path
 
 import numpy as np
 
-SR = 22050
+SR: int = 22050
+SR_F: np.float64 = np.float64(SR)   # 供 ndarray 除法使用的 numpy 标量,规避严格存根对 ndarray/标量 的类型告警
 OUT = Path(__file__).resolve().parents[1] / "assets" / "audio"
 RNG = np.random.default_rng(20261125)
 
@@ -22,7 +22,7 @@ def midi(note: int) -> float:
 
 def oscillator(freq: np.ndarray | float, n: int, kind: str = "square", duty: float = 0.5) -> np.ndarray:
     f = np.full(n, freq, dtype=np.float64) if np.isscalar(freq) else np.asarray(freq, dtype=np.float64)
-    phase = np.cumsum(f) / SR
+    phase = np.cumsum(f) / SR_F
     frac = phase - np.floor(phase)
     if kind == "sine":
         return np.sin(2 * np.pi * phase)
@@ -52,7 +52,7 @@ def tone(freq: float, dur: float, kind: str = "square", gain: float = 0.3,
 def sweep(f0: float, f1: float, dur: float, kind: str = "square", gain: float = 0.3) -> np.ndarray:
     n = max(1, int(dur * SR))
     freq = np.linspace(f0, f1, n)
-    t = np.arange(n) / SR
+    t = np.arange(n) / SR_F
     sig = oscillator(freq, n, kind) * np.exp(-3.5 * t) * gain
     return sig
 
@@ -62,7 +62,7 @@ def noise(dur: float, gain: float = 0.2, decay: float = 26.0, highpass: bool = F
     sig = RNG.standard_normal(n)
     if highpass:
         sig = np.diff(sig, prepend=0.0)
-    t = np.arange(n) / SR
+    t = np.arange(n) / SR_F
     return sig * np.exp(-decay * t) * gain
 
 
@@ -95,7 +95,11 @@ def write_wav(name: str, sig: np.ndarray, seconds: float) -> None:
     out = np.zeros(n, dtype=np.float64)
     out[:min(n, len(sig))] = sig[:n]
     out = normalize(out, 0.82)
-    data = np.clip(out * 32767, -32768, 32767).astype("<i2")
+    # 8-bit 位深压碎:量化到 256 级(-128..127),得到经典 8-bit 颗粒感,
+    # 再还原到 [-1, 1] 存为 16-bit WAV——听感即 8-bit,对 mixer 零兼容风险。
+    crushed = np.round(out * 127.0)
+    crushed = np.clip(crushed, -128.0, 127.0) / 127.0
+    data = np.clip(crushed * 32767, -32768, 32767).astype("<i2")
     path = OUT / f"{name}.wav"
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
