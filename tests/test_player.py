@@ -117,6 +117,18 @@ def test_full_jump_height():
     assert 3.5 * TILE <= height <= 4.6 * TILE
 
 
+def test_sprint_jump_is_higher():
+    """满冲刺起跳比站立起跳高约一格（JUMP_SPEED_BONUS=0.12）。"""
+    tmap = make_tmap()
+    player = settled(tmap)
+    run(player, InputIntent(right=True, sprint=True), tmap, 40)
+    assert player.body.vx == pytest.approx(MAX_SPRINT, abs=1.0)
+    player.update(PHYSICS_DT, InputIntent(jump_pressed=True, jump_held=True),
+                  world(tmap))
+    height = jump_height(player, tmap, hold_steps=120)
+    assert 4.5 * TILE <= height <= 5.5 * TILE
+
+
 # —— UT-P-07～09 土狼时间与跳跃缓冲 ——
 
 def _walk_off_edge(tmap: TileMap) -> Player:

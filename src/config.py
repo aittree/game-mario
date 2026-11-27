@@ -29,6 +29,7 @@ GRAVITY = 1280.0         # 与 JUMP_VEL=640 配合，满按跳跃高度约 4 格
 MAX_FALL = 780.0
 JUMP_VEL = 640.0
 JUMP_CUT = 0.70          # 松开跳跃键后上升速度只剩 70%，轻按约跳 2 格
+JUMP_SPEED_BONUS = 0.12  # 满冲刺起跳额外 +12% 初速（约 4 格 → 5 格），按起跳时水平速度线性加成
 STOMP_BOUNCE = 420.0
 GROUND_ACC = 2100.0      # 0 → 320 px/s 约 0.15 s
 SPRINT_ACC = 3100.0      # 0 → 460 px/s 约 0.15 s

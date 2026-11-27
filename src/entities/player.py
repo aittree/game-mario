@@ -19,6 +19,7 @@ from ..config import (
     INVINCIBLE_MS,
     JUMP_BUFFER_MS,
     JUMP_CUT,
+    JUMP_SPEED_BONUS,
     JUMP_VEL,
     MAX_FALL,
     MAX_SPRINT,
@@ -56,6 +57,7 @@ class Player(Entity):
         self.on_ground = False
         self.coyote_ms = 0.0
         self.buffer_ms = 0.0
+        self.jump_vel = JUMP_VEL                  # 本次起跳的实际初速（含冲刺加成）
         self.invincible_ms = 0.0
         self.transform_ms = 0.0
         self.fire_cd_ms = 0.0
@@ -165,15 +167,20 @@ class Player(Entity):
             self.buffer_ms = JUMP_BUFFER_MS
         # 起跳：有缓冲，且站在地面或仍处于土狼窗口内。
         if self.buffer_ms > 0 and (self.on_ground or self.coyote_ms > 0):
-            self.body.vy = -JUMP_VEL
+            # 冲刺加成：按起跳瞬间水平速度在 MAX_WALK～MAX_SPRINT 之间线性提升初速，
+            # 走路/站立起跳仍是基础高度，只有真正跑起来才跳得更高。
+            speed = abs(self.body.vx)
+            ratio = min(1.0, max(0.0, (speed - MAX_WALK) / (MAX_SPRINT - MAX_WALK)))
+            self.jump_vel = JUMP_VEL * (1.0 + JUMP_SPEED_BONUS * ratio)
+            self.body.vy = -self.jump_vel
             self.on_ground = False
             self.coyote_ms = 0.0
             self.buffer_ms = 0.0
             self.events.append("jump")
 
-        # 可变跳跃高度：松开跳跃键即裁剪上升速度，轻按约跳 2 格。
-        if (not intent.jump_held) and self.body.vy < -JUMP_VEL * JUMP_CUT:
-            self.body.vy = -JUMP_VEL * JUMP_CUT
+        # 可变跳跃高度：松开跳跃键即裁剪上升速度；阈值按本次起跳初速缩放。
+        if (not intent.jump_held) and self.body.vy < -self.jump_vel * JUMP_CUT:
+            self.body.vy = -self.jump_vel * JUMP_CUT
 
         self.body.vy = min(self.body.vy + GRAVITY * dt, MAX_FALL)
 
