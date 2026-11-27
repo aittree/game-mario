@@ -45,7 +45,7 @@ SFX_BY_EVENT = {
     "jump": "jump", "coin": "coin", "stomp": "stomp", "bump": "bump",
     "brick_break": "brick", "powerup": "powerup", "powerdown": "powerdown",
     "fire": "fire", "death": "death", "clear": "clear",
-    "checkpoint": "checkpoint", "oneup": "oneup", "gameover": "death",
+    "checkpoint": "checkpoint", "oneup": "oneup", "gameover": "gameover",
 }
 
 

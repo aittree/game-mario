@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ..config import (
-    FIRE_BOUNCES,
     FIRE_SPEED,
     GRAVITY,
     MAX_FALL,
@@ -67,7 +66,6 @@ class Fireball(Entity):
         super().__init__(cx - self.W / 2, cy - self.H / 2, self.W, self.H)
         self.body.vx = direction * FIRE_SPEED
         self.body.vy = 120
-        self.bounces = 0
         self.life_ms = 3000
         self.events: list[str] = []
 
@@ -80,12 +78,9 @@ class Fireball(Entity):
         self.body.vy = min(self.body.vy + GRAVITY * dt, MAX_FALL)
         contacts = move_and_collide(self.body, world.tilemap, dt)
         if contacts.ground:
-            self.bounces += 1
-            if self.bounces >= FIRE_BOUNCES:
-                self.alive = False
-                self.events.append("fizzle")
-            else:
-                self.body.vy = -STOMP_BOUNCE * 0.85
-                self.events.append("spark")
+            self.body.vy = -STOMP_BOUNCE * 0.85      # 地面持续弹跳，不再限定弹跳次数
         if contacts.left or contacts.right:
-            self.body.vx *= -1
+            self.alive = False                       # 撞到侧面墙壁：爆炸消失（SMB1）
+            self.events.append("spark")
+        if self.body.x < -100 or self.body.x > world.width_px + 100:
+            self.alive = False                       # 飞出关卡边界

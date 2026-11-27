@@ -12,6 +12,7 @@ from typing import Protocol
 from ..config import (
     AIR_ACC,
     COYOTE_MS,
+    DEATH_HOLD_MS,
     FIRE_BUFFER_MS,
     FIRE_COOLDOWN_MS,
     FIRE_MAX_ONSCREEN,
@@ -66,6 +67,7 @@ class Player(Entity):
         self.fire_buffer_ms = 0.0
         self.stomp_chain = 0
         self.dead = False
+        self.death_hold_ms = 0.0
         self.anim_state = AnimState.IDLE
         self.events: list[str] = []
         self.spawn_requests: list[tuple] = []     # ("fireball", x, y, dir)
@@ -287,11 +289,17 @@ class Player(Entity):
         self.anim_state = AnimState.DEAD
         self.anim_timer = 0.0
         self.body.vx = 0.0
-        self.body.vy = -520.0
+        self.body.vy = 0.0
+        self.death_hold_ms = DEATH_HOLD_MS      # 先在原地/空中暂留，再上弹坠落
         self.events.append("death")
 
     def _update_dead(self, dt: float) -> None:
         self.anim_timer += dt
+        if self.death_hold_ms > 0:
+            self.death_hold_ms -= dt * 1000
+            if self.death_hold_ms <= 0:
+                self.body.vy = -520.0           # 暂留结束：死亡上弹
+            return
         self.body.vy = min(self.body.vy + GRAVITY * dt, MAX_FALL)
         self.body.y += self.body.vy * dt       # 死亡后忽略地形，直接落出画面
 

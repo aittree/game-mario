@@ -172,6 +172,17 @@ def test_fireball_moves_after_firing():
     assert ball.body.x > start_x
 
 
+def test_fireball_keeps_bouncing():
+    """按 SMB1：落地持续弹跳，不再「两次落地就消失」（地面/水管手感一致）。"""
+    session = make_session()
+    session.player.power = PowerState.FIRE
+    session.step(InputIntent(fire_pressed=True), DT)
+    ball = session.fireballs[0]
+    for _ in range(120):            # 1.0s，旧规则会在 ~0.67s 内因两次弹跳消失
+        session.step(InputIntent(), DT)
+    assert ball.alive
+
+
 def test_fire_input_buffer():
     """冷却期间按下 X 会被记住，冷却结束后自动补发一颗。"""
     session = make_session()

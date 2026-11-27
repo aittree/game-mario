@@ -221,6 +221,17 @@ def sfx_oneup() -> np.ndarray:
     return out
 
 
+def sfx_gameover() -> np.ndarray:
+    """Game Over jingle：比死亡音效更慢、更低沉，避免与死亡音效重复。"""
+    out = np.zeros(int(1.60 * SR))
+    t = 0.0
+    for note, dur in ((67, 0.30), (64, 0.30), (60, 0.35), (55, 0.55)):
+        add(out, t, tone(midi(note), dur * 0.95, "triangle", 0.24, release=0.18))
+        t += dur
+    add(out, 1.20, tone(midi(48), 0.38, "triangle", 0.10, attack=0.04, release=0.30))
+    return out
+
+
 def sfx_clear() -> np.ndarray:
     out = np.zeros(int(1.60 * SR))
     seq = [(72, 0.16), (76, 0.16), (79, 0.16), (84, 0.30), (86, 0.30), (91, 0.45)]
@@ -281,6 +292,7 @@ def main() -> None:
         "sfx_powerdown": (0.35, sfx_powerdown()),
         "sfx_fire": (0.08, sfx_fire()),
         "sfx_death": (1.20, sfx_death()),
+        "sfx_gameover": (1.60, sfx_gameover()),
         "sfx_clear": (1.60, sfx_clear()),
         "sfx_checkpoint": (0.30, sfx_checkpoint()),
         "sfx_oneup": (0.35, sfx_oneup()),

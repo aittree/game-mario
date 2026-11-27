@@ -13,6 +13,7 @@ SFX_FILES = {
     "jump": "sfx_jump.wav", "coin": "sfx_coin.wav", "stomp": "sfx_stomp.wav",
     "bump": "sfx_bump.wav", "brick": "sfx_brick.wav", "powerup": "sfx_powerup.wav",
     "powerdown": "sfx_powerdown.wav", "fire": "sfx_fire.wav", "death": "sfx_death.wav",
+    "gameover": "sfx_gameover.wav",
     "clear": "sfx_clear.wav", "checkpoint": "sfx_checkpoint.wav", "oneup": "sfx_oneup.wav",
     "menu": "sfx_menu.wav", "pause": "sfx_pause.wav",
 }

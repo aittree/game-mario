@@ -117,6 +117,18 @@ def test_full_jump_height():
     assert 3.5 * TILE <= height <= 4.6 * TILE
 
 
+def test_death_air_hold_before_falling():
+    """死亡后先在空中暂留，再上弹坠落。"""
+    tmap = make_tmap()
+    player = Player(2, 16)
+    player.kill()
+    y0 = player.body.y
+    run(player, InputIntent(), tmap, 30)      # 0.25s，仍在暂留期
+    assert player.body.y == pytest.approx(y0)
+    run(player, InputIntent(), tmap, 30)      # 越过暂留：应上弹（y 变小）
+    assert player.body.y < y0
+
+
 def test_sprint_jump_is_higher():
     """满冲刺起跳比站立起跳高约一格（JUMP_SPEED_BONUS=0.12）。"""
     tmap = make_tmap()
