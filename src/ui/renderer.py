@@ -315,7 +315,7 @@ class Renderer:
         draw_text(surface, f"{snap.score:06d}", 28, HUD_TEXT, (300, 36),
                   anchor="midright", bold=True)
 
-        coin_icon = pygame.transform.smoothscale(self._tileset(snap.theme)[12], (28, 28))
+        coin_icon = pygame.transform.scale(self._tileset(snap.theme)[12], (28, 28))
         surface.blit(coin_icon, (330, 22))
         draw_text(surface, f"× {snap.coins}", 28, HUD_TEXT, (368, 36),
                   anchor="midleft", bold=True)
@@ -333,7 +333,7 @@ class Renderer:
         draw_text(surface, f"{snap.time_units:03d}", 28, time_color, (856, 36),
                   anchor="midleft", bold=True)
 
-        avatar = pygame.transform.smoothscale(self._player_frames["small"][0], (30, 30))
+        avatar = pygame.transform.scale(self._player_frames["small"][0], (30, 30))
         surface.blit(avatar, (1040, 21))
         draw_text(surface, f"× {snap.lives}", 28, HUD_TEXT, (1078, 36),
                   anchor="midleft", bold=True)
@@ -386,8 +386,6 @@ class Renderer:
     def draw_level_select(self, surface: pygame.Surface, profile: Profile,
                           levels: list[LevelInfo], selected: int = 0) -> list[Button]:
         self._draw_menu_bg(surface)
-        total = len(levels)
-        unlocked = min(profile.unlocked, total)
         playable = [i for i, info in enumerate(levels)
                     if i < profile.unlocked and info.available]
         continue_index = playable[-1] if playable else 0

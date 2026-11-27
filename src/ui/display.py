@@ -62,7 +62,7 @@ class Display:
     def present(self) -> None:
         self._layout()
         if self.scaled is not None:
-            pygame.transform.smoothscale(self.canvas, self.scaled.get_size(), self.scaled)
+            pygame.transform.scale(self.canvas, self.scaled.get_size(), self.scaled)   # 最近邻，保持像素锐利
             self.window.fill((0, 0, 0))
             self.window.blit(self.scaled, self.offset)
         else:

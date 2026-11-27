@@ -12,9 +12,11 @@
 
 from __future__ import annotations
 
+import io
+import struct
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 IMG_DIR = ROOT / "assets" / "images"
@@ -362,81 +364,86 @@ def build_sheet(frames: list[list[Image.Image | None]], cell_w: int, cell_h: int
 
 
 def make_logo() -> Image.Image:
-    size = 1024
-    layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    # 底部投影
-    d.ellipse([180, 790, 844, 940], fill=(0, 0, 0, 90))
+    """128×128 逻辑像素绘制后最近邻放大 4 倍到 512×512（像素风，无柔光/模糊）。"""
+    base = 128
+    img = Image.new("RGBA", (base, base), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    # 底部投影（硬边椭圆）
+    d.ellipse([22, 96, 106, 116], fill=(0, 0, 0, 90))
     # 帽檐
-    d.rounded_rectangle([150, 610, 874, 720], radius=52, fill=RED_D, outline=DARK, width=18)
-    d.rounded_rectangle([170, 622, 854, 684], radius=30, fill=RED)
+    d.rectangle([18, 76, 110, 90], fill=RED_D, outline=DARK, width=2)
+    d.rectangle([21, 79, 107, 86], fill=RED)
     # 帽体
-    d.polygon([(220, 640), (270, 420), (390, 320), (610, 310), (760, 400), (820, 640)], fill=RED)
-    d.polygon([(270, 580), (310, 430), (420, 360), (600, 355), (720, 430), (770, 580)], fill=RED_L)
-    d.line([(230, 620), (280, 430), (400, 335), (610, 325), (760, 410), (812, 620)], fill=DARK, width=18)
+    d.polygon([(27, 80), (33, 52), (48, 40), (76, 39), (95, 50), (102, 80)], fill=RED)
+    d.polygon([(34, 72), (39, 54), (52, 45), (75, 44), (90, 54), (96, 72)], fill=RED_L)
+    d.line([(28, 77), (35, 54), (50, 42), (76, 41), (95, 51), (101, 77)], fill=DARK, width=2)
     # 帽徽：一棵小树
-    d.ellipse([430, 430, 620, 620], fill=WHITE, outline=GREEN_D, width=14)
-    d.rectangle([508, 530, 542, 610], fill=BROWN, outline=BROWN_D, width=6)
-    d.polygon([(525, 440), (445, 555), (605, 555)], fill=GREEN, outline=GREEN_D)
-    d.polygon([(525, 470), (465, 575), (585, 575)], fill=GREEN_L)
+    d.ellipse([54, 54, 78, 78], fill=WHITE, outline=GREEN_D, width=2)
+    d.rectangle([62, 66, 68, 76], fill=BROWN, outline=BROWN_D)
+    d.polygon([(66, 55), (56, 69), (76, 69)], fill=GREEN, outline=GREEN_D)
+    d.polygon([(66, 59), (58, 72), (74, 72)], fill=GREEN_L)
     # 叶子
-    d.line([(640, 340), (735, 235)], fill=GREEN_D, width=20)
-    d.polygon([(735, 238), (690, 205), (672, 160), (690, 120), (730, 100),
-               (775, 110), (805, 145), (800, 190), (770, 225)], fill=GREEN, outline=GREEN_D)
-    d.line([(740, 230), (752, 120)], fill=GREEN_L, width=10)
-    d.line([(745, 190), (795, 160)], fill=GREEN_L, width=6)
-    d.polygon([(690, 280), (650, 265), (640, 230), (665, 205), (700, 215), (715, 250)],
-              fill="#2F8F4E", outline=GREEN_D)
+    d.line([(80, 42), (92, 29)], fill=GREEN_D, width=2)
+    d.polygon([(92, 30), (86, 26), (84, 20), (86, 15), (91, 12),
+               (97, 14), (101, 18), (100, 24), (96, 28)], fill=GREEN, outline=GREEN_D)
+    d.line([(92, 29), (94, 15)], fill=GREEN_L)
     # 高光与火花
-    d.line([(300, 610), (330, 470), (410, 400)], fill="#FF9A88", width=14)
-    for x, y, r in ((170, 240, 10), (860, 300, 12), (820, 760, 8), (200, 500, 7)):
-        d.ellipse([x - r, y - r, x + r, y + r], fill=(255, 255, 255, 190))
-    # 柔光
-    glow = layer.filter(ImageFilter.GaussianBlur(16))
-    out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    out = Image.alpha_composite(out, glow)
-    out = Image.alpha_composite(out, layer)
-    return out.resize((512, 512), Image.Resampling.LANCZOS)
+    d.rectangle([37, 58, 41, 76], fill="#FF9A88")
+    for x, y in ((21, 30), (107, 37), (102, 95), (25, 62)):
+        d.rectangle([x, y, x + 1, y + 1], fill=(255, 255, 255, 200))
+    return img.resize((512, 512), Image.Resampling.NEAREST)
+
+
+def _save_ico(path: Path, source: Image.Image, sizes: tuple[int, ...]) -> None:
+    """手工写 ICO：每个尺寸用最近邻缩放后以 PNG 压缩存储，避免默认重采样糊掉像素边。"""
+    frames: list[tuple[int, bytes]] = []
+    for size in sizes:
+        frame = source.resize((size, size), Image.Resampling.NEAREST)
+        buf = io.BytesIO()
+        frame.save(buf, format="PNG")
+        frames.append((size, buf.getvalue()))
+    header = struct.pack("<HHH", 0, 1, len(frames))
+    offset = 6 + 16 * len(frames)
+    directory = b""
+    payload = b""
+    for size, png in frames:
+        dim = 0 if size >= 256 else size
+        directory += struct.pack("<BBBBHHII", dim, dim, 0, 0, 1, 32, len(png), offset)
+        offset += len(png)
+        payload += png
+    path.write_bytes(header + directory + payload)
 
 
 def make_menu_bg() -> Image.Image:
-    w, h = 1280, 720
-    img = Image.new("RGB", (w, h))
-    px = img.load()
-    assert px is not None
-    for y in range(h):
-        for x in range(w):
-            t = (x / w) * 0.65 + (1 - y / h) * 0.35
-            r = int(8 + 18 * t)
-            g = int(22 + 54 * t)
-            b = int(38 + 62 * t)
-            px[x, y] = (r, g, b)
+    """320×180 逻辑像素绘制后最近邻放大 4 倍到 1280×720（像素风，去柔光/暗角）。"""
+    bw, bh = 320, 180
+    img = Image.new("RGB", (bw, bh))
     d = ImageDraw.Draw(img, "RGBA")
-    # 右上柔光
-    for radius in range(520, 0, -20):
-        alpha = int(4 + (520 - radius) * 0.035)
-        d.ellipse([1000 - radius, -120 - radius, 1000 + radius, -120 + radius], fill=(120, 220, 220, alpha))
-    # 远景树冠
+    # 天空色带（硬边台阶）
+    bands = 8
+    for i in range(bands):
+        t = i / (bands - 1)
+        color = (int(8 + 18 * t), int(22 + 54 * t), int(38 + 62 * t))
+        y0 = i * bh // bands
+        y1 = (i + 1) * bh // bands - 1
+        d.rectangle([0, y0, bw - 1, y1], fill=color)
+    # 月亮（块状双圈）
+    d.ellipse([252, 10, 282, 40], fill=(120, 200, 205))
+    d.ellipse([258, 16, 276, 34], fill=(180, 235, 236))
+    # 远景树冠（块状剪影）
     for i in range(14):
-        x = i * 100 - 40
-        y = 560 + (i % 4) * 22
-        d.ellipse([x, y, x + 240, y + 260], fill=(10, 48, 42, 160))
-    d.rectangle([0, 640, w, h], fill=(6, 22, 24, 230))
+        x = i * 25 - 10
+        y = 140 + (i % 4) * 5
+        d.rectangle([x, y, x + 60, y + 65], fill=(10, 48, 42))
+        d.rectangle([x + 12, y - 12, x + 48, y + 8], fill=(12, 54, 46))
+    d.rectangle([0, 160, bw - 1, bh - 1], fill=(6, 22, 24))
     # 低亮度星点
     import random
     rng = random.Random(7)
     for _ in range(90):
-        x, y = rng.randrange(w), rng.randrange(0, 420)
-        a = rng.randrange(30, 90)
-        d.ellipse([x, y, x + 2, y + 2], fill=(200, 240, 255, a))
-    # 暗角
-    vignette = Image.new("L", (w, h), 0)
-    vd = ImageDraw.Draw(vignette)
-    vd.ellipse([-260, -220, w + 260, h + 240], fill=255)
-    vignette = vignette.filter(ImageFilter.GaussianBlur(120))
-    dark = Image.new("RGB", (w, h), (2, 8, 12))
-    img = Image.composite(img, dark, vignette)
-    return img
+        x, y = rng.randrange(bw), rng.randrange(0, 105)
+        d.point((x, y), fill=(200, 240, 255))
+    return img.resize((1280, 720), Image.Resampling.NEAREST)
 
 
 def main() -> None:
@@ -476,10 +483,9 @@ def main() -> None:
     menu_bg = make_menu_bg()
     menu_bg.save(IMG_DIR / "bg_menu.png")
 
-    icon = logo.resize((256, 256), Image.Resampling.LANCZOS)
+    icon = logo.resize((256, 256), Image.Resampling.NEAREST)
     icon.save(IMG_DIR.parent / "icon.png")
-    icon.save(IMG_DIR.parent / "icon.ico", format="ICO",
-              sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    _save_ico(IMG_DIR.parent / "icon.ico", logo, (16, 24, 32, 48, 64, 128, 256))
 
     for name, sheet in (("player_small", small_sheet), ("player_big", big_sheet),
                         ("enemies", enemy_sheet), ("items", item_sheet),

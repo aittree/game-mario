@@ -1,6 +1,7 @@
-"""生成 4 套 16 帧地形瓦片集（320×80）。
+"""生成 4 套 16 帧地形瓦片集（320×80），像素风。
 
-索引顺序见 docs/08 §2.2，四套主题只换配色与材质，形状与索引完全一致。
+每帧先在 10×10 逻辑像素画布上绘制，再用最近邻放大 4 倍到 40×40，
+像素块统一为 4×4。索引顺序见 docs/08 §2.2，四套主题只换配色与材质。
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from zlib import crc32
 from PIL import Image, ImageDraw
 
 CELL = 40
+BASE = 10                     # 逻辑像素边长
+S = CELL // BASE              # 最近邻放大倍数 = 4
 COLS, ROWS = 8, 2
 OUT_DIR = Path(__file__).resolve().parents[1] / "assets" / "images"
 
@@ -79,120 +82,123 @@ QUESTION_BITS = (
 
 
 def _cell() -> Image.Image:
-    return Image.new("RGBA", (CELL, CELL), (0, 0, 0, 0))
+    return Image.new("RGBA", (BASE, BASE), (0, 0, 0, 0))
 
 
 def _dirt(d: ImageDraw.ImageDraw, p: dict[str, str], seed: int) -> None:
-    d.rectangle([0, 0, 39, 39], fill=p["dirt"])
-    d.rectangle([0, 0, 39, 5], fill=p["top"])
-    d.rectangle([0, 6, 39, 6], fill=p["top_dark"])
-    d.line([0, 0, 0, 39], fill=p["dirt_light"])
-    d.line([39, 0, 39, 39], fill=p["dirt_dark"])
+    """地面：顶部两条草边 + 下部泥土与颗粒点缀。"""
+    d.rectangle([0, 0, BASE - 1, BASE - 1], fill=p["dirt"])
+    d.rectangle([0, 0, BASE - 1, 1], fill=p["top"])
+    d.rectangle([0, 2, BASE - 1, 2], fill=p["top_dark"])
+    d.line([0, 0, 0, BASE - 1], fill=p["dirt_light"])
+    d.line([BASE - 1, 0, BASE - 1, BASE - 1], fill=p["dirt_dark"])
     rng = random.Random(seed)
-    for _ in range(18):
-        x, y = rng.randrange(2, 38), rng.randrange(9, 38)
+    for _ in range(6):
+        x, y = rng.randrange(1, BASE - 1), rng.randrange(4, BASE - 1)
         d.point((x, y), fill=p["dirt_dark"] if rng.random() < 0.6 else p["dirt_light"])
-    for x in range(1, 40, 5):
-        d.line([x, 0, x + 1, 3], fill=p["top_light"])
+    for x in (1, 4, 7):
+        d.point((x, 0), fill=p["top_light"])
 
 
 def _brick(d: ImageDraw.ImageDraw, p: dict[str, str]) -> None:
-    d.rectangle([0, 0, 39, 39], fill=p["mortar"])
-    for row, y in enumerate((2, 21)):
-        offset = 0 if row == 0 else 10
-        for x in range(-20 + offset, 40, 20):
-            d.rectangle([x + 1, y, x + 18, y + 16], fill=p["brick"])
-            d.line([x + 1, y, x + 18, y], fill=p["brick_dark"])
-            d.line([x + 1, y + 16, x + 18, y + 16], fill=p["brick_dark"])
-    d.rectangle([0, 0, 39, 39], outline=p["brick_dark"])
+    """砖块：灰缝打底 + 两行错缝砖，砖宽 4 逻辑像素。"""
+    d.rectangle([0, 0, BASE - 1, BASE - 1], fill=p["mortar"])
+    for y0, y1, start in ((0, 3, 0), (5, 8, -2)):
+        x = start
+        while x < BASE:
+            x0, x1 = max(0, x), min(BASE - 1, x + 3)
+            if x1 >= x0:
+                d.rectangle([x0, y0, x1, y1], fill=p["brick"])
+                d.line([x0, y0, x1, y0], fill=p["brick_dark"])
+                d.line([x0, y1, x1, y1], fill=p["brick_dark"])
+            x += 5
 
 
 def _hard(d: ImageDraw.ImageDraw, p: dict[str, str]) -> None:
-    d.rectangle([0, 0, 39, 39], fill=p["metal"])
-    d.rectangle([0, 0, 39, 39], outline=p["metal_dark"], width=2)
-    d.line([2, 2, 37, 2], fill=p["metal_light"], width=2)
-    d.line([2, 2, 2, 37], fill=p["metal_light"], width=2)
-    d.line([2, 37, 37, 37], fill=p["metal_dark"], width=2)
-    d.line([37, 2, 37, 37], fill=p["metal_dark"], width=2)
-    for cx, cy in ((7, 7), (32, 7), (7, 32), (32, 32)):
-        d.ellipse([cx - 2, cy - 2, cx + 2, cy + 2], fill=p["metal_light"], outline=p["metal_dark"])
+    """硬块：实心金属 + 1 像素内斜面 + 四角铆钉。"""
+    d.rectangle([0, 0, BASE - 1, BASE - 1], fill=p["metal"])
+    d.rectangle([0, 0, BASE - 1, BASE - 1], outline=p["metal_dark"])
+    d.line([1, 1, BASE - 2, 1], fill=p["metal_light"])
+    d.line([1, 1, 1, BASE - 2], fill=p["metal_light"])
+    d.line([1, BASE - 2, BASE - 2, BASE - 2], fill=p["metal_dark"])
+    d.line([BASE - 2, 1, BASE - 2, BASE - 2], fill=p["metal_dark"])
+    for cx, cy in ((2, 2), (7, 2), (2, 7), (7, 7)):
+        d.point((cx, cy), fill=p["metal_light"])
 
 
 def _question(d: ImageDraw.ImageDraw, p: dict[str, str], frame: int) -> None:
-    d.rectangle([1, 1, 38, 38], fill=p["gold"], outline=p["gold_dark"], width=2)
-    d.rectangle([4, 4, 35, 35], outline=p["gold_light"], width=1)
+    """问号块：金底 + 内高光 + 1 像素问号点阵。"""
+    d.rectangle([0, 0, BASE - 1, BASE - 1], fill=p["gold"])
+    d.rectangle([0, 0, BASE - 1, BASE - 1], outline=p["gold_dark"])
+    d.rectangle([1, 1, BASE - 2, BASE - 2], outline=p["gold_light"])
     if frame == 1:
-        d.line([5, 5, 20, 5], fill=p["gold_light"], width=2)
-    scale = 4
-    w = len(QUESTION_BITS[0]) * scale
-    h = len(QUESTION_BITS) * scale
-    ox, oy = (CELL - w) // 2, (CELL - h) // 2 + 1
+        d.line([2, 2, BASE - 3, 2], fill=p["gold_light"])
+    w, h = len(QUESTION_BITS[0]), len(QUESTION_BITS)
+    ox, oy = (BASE - w) // 2, (BASE - h) // 2 + 1
     for gy, row in enumerate(QUESTION_BITS):
         for gx, bit in enumerate(row):
             if bit:
-                d.rectangle([ox + gx * scale, oy + gy * scale,
-                             ox + gx * scale + scale - 1, oy + gy * scale + scale - 1],
-                            fill="#FFFFFF")
-    for cx, cy in ((5, 5), (34, 5), (5, 34), (34, 34)):
-        d.rectangle([cx - 1, cy - 1, cx + 1, cy + 1], fill=p["gold_dark"])
+                d.point((ox + gx, oy + gy), fill="#FFFFFF")
 
 
 def _used(d: ImageDraw.ImageDraw, p: dict[str, str]) -> None:
-    d.rectangle([1, 1, 38, 38], fill=p["used"], outline=p["used_dark"], width=2)
-    d.rectangle([4, 4, 35, 35], outline=p["used_dark"], width=1)
-    for cx, cy in ((5, 5), (34, 5), (5, 34), (34, 34)):
-        d.rectangle([cx - 1, cy - 1, cx + 1, cy + 1], fill=p["used_dark"])
+    """已用块：暗金双层边框 + 四角铆点。"""
+    d.rectangle([0, 0, BASE - 1, BASE - 1], fill=p["used"])
+    d.rectangle([0, 0, BASE - 1, BASE - 1], outline=p["used_dark"])
+    d.rectangle([1, 1, BASE - 2, BASE - 2], outline=p["used_dark"])
+    for cx, cy in ((1, 1), (BASE - 2, 1), (1, BASE - 2), (BASE - 2, BASE - 2)):
+        d.point((cx, cy), fill=p["used_dark"])
 
 
 def _pipe_body(d: ImageDraw.ImageDraw, p: dict[str, str]) -> None:
-    d.rectangle([0, 0, 39, 39], fill=p["pipe"])
-    for x in (5, 15, 25, 35):
-        d.line([x, 0, x, 39], fill=p["pipe_light"])
-    d.line([0, 0, 0, 39], fill=p["pipe_dark"], width=2)
-    d.line([39, 0, 39, 39], fill=p["pipe_dark"], width=2)
+    """管身：竖纹 + 两侧暗边。"""
+    d.rectangle([0, 0, BASE - 1, BASE - 1], fill=p["pipe"])
+    for x in (1, 3, 6, 8):
+        d.line([x, 0, x, BASE - 1], fill=p["pipe_light"])
+    d.line([0, 0, 0, BASE - 1], fill=p["pipe_dark"])
+    d.line([BASE - 1, 0, BASE - 1, BASE - 1], fill=p["pipe_dark"])
 
 
 def _pipe_lip(d: ImageDraw.ImageDraw, p: dict[str, str], side: str) -> None:
-    if side == "left":
-        d.rectangle([1, 0, 39, 13], fill=p["pipe_light"], outline=p["pipe_dark"], width=2)
-        d.rectangle([1, 14, 39, 39], fill=p["pipe"])
-        d.line([5, 16, 5, 39], fill=p["pipe_light"])
-        d.line([15, 16, 15, 39], fill=p["pipe_light"])
-        d.line([1, 14, 39, 14], fill=p["pipe_dark"], width=2)
-    elif side == "right":
-        d.rectangle([1, 0, 39, 13], fill=p["pipe_light"], outline=p["pipe_dark"], width=2)
-        d.rectangle([0, 14, 38, 39], fill=p["pipe"])
-        d.line([24, 16, 24, 39], fill=p["pipe_light"])
-        d.line([34, 16, 34, 39], fill=p["pipe_light"])
-        d.line([0, 14, 38, 14], fill=p["pipe_dark"], width=2)
-    else:
-        d.rectangle([1, 0, 38, 13], fill=p["pipe_light"], outline=p["pipe_dark"], width=2)
-        d.rectangle([4, 14, 35, 39], fill=p["pipe"])
-        d.line([9, 16, 9, 39], fill=p["pipe_light"])
-        d.line([30, 16, 30, 39], fill=p["pipe_light"])
+    """管口：顶部宽唇 + 下方管身；左/右半靠条纹位置区分。"""
+    if side == "single":
+        d.rectangle([1, 0, BASE - 2, 3], fill=p["pipe_light"], outline=p["pipe_dark"])
+        d.rectangle([1, 4, BASE - 2, BASE - 1], fill=p["pipe"])
+        for x in (3, 6):
+            d.line([x, 4, x, BASE - 1], fill=p["pipe_light"])
+        d.line([1, 4, BASE - 2, 4], fill=p["pipe_dark"])
+        return
+    d.rectangle([0, 0, BASE - 1, 3], fill=p["pipe_light"], outline=p["pipe_dark"])
+    d.rectangle([0, 4, BASE - 1, BASE - 1], fill=p["pipe"])
+    stripes = (1, 3) if side == "left" else (6, 8)
+    for x in stripes:
+        d.line([x, 4, x, BASE - 1], fill=p["pipe_light"])
+    d.line([0, 4, BASE - 1, 4], fill=p["pipe_dark"])
 
 
 def _semisolid(d: ImageDraw.ImageDraw, p: dict[str, str]) -> None:
-    d.rectangle([0, 0, 39, 8], fill=p["wood"], outline=p["wood_dark"])
-    d.line([1, 1, 38, 1], fill=p["wood_light"], width=2)
-    for x in range(3, 40, 8):
-        d.line([x, 9, x, 18], fill=p["wood_dark"])
+    """单向平台：顶部实木板 + 下方短木钉，其余透明。"""
+    d.rectangle([0, 0, BASE - 1, 3], fill=p["wood"], outline=p["wood_dark"])
+    d.line([1, 0, BASE - 2, 0], fill=p["wood_light"])
+    for x in (2, 5, 8):
+        d.line([x, 4, x, 5], fill=p["wood_dark"])
 
 
 def _spike(d: ImageDraw.ImageDraw, p: dict[str, str]) -> None:
-    for base in (0, 14, 28):
-        pts = [(base, 39), (base + 6, 10), (base + 12, 39)]
-        d.polygon(pts, fill=p["spike"], outline=p["spike_dark"])
-        d.line([base + 6, 12, base + 6, 36], fill=p["spike_dark"])
+    """尖刺：3 个三角，底边贴格底，高 7 逻辑像素（28 px）。"""
+    for base in (0, 3, 6):
+        d.polygon([(base, BASE - 1), (base + 1, 2), (base + 2, BASE - 1)],
+                  fill=p["spike"], outline=p["spike_dark"])
 
 
 def _coin(d: ImageDraw.ImageDraw, p: dict[str, str], frame: int) -> None:
-    widths = (26, 18, 6, 18)
+    """金币：4 帧旋转，宽度 6/4/2/4 逻辑像素。"""
+    widths = (6, 4, 2, 4)
     w = widths[frame]
-    x0 = (CELL - w) // 2
-    d.ellipse([x0, 5, x0 + w - 1, 35], fill=p["coin"], outline=p["coin_dark"], width=2)
-    if w >= 18:
-        d.ellipse([x0 + 3, 9, x0 + w - 4, 31], outline=p["coin_light"], width=2)
+    x0 = (BASE - w) // 2
+    d.ellipse([x0, 1, x0 + w - 1, BASE - 2], fill=p["coin"], outline=p["coin_dark"])
+    if w >= 4:
+        d.ellipse([x0 + 1, 2, x0 + w - 2, BASE - 3], outline=p["coin_light"])
 
 
 def draw_frame(index: int, p: dict[str, str], seed: int) -> Image.Image:
@@ -222,7 +228,7 @@ def draw_frame(index: int, p: dict[str, str], seed: int) -> Image.Image:
         _spike(d, p)
     elif index >= 12:
         _coin(d, p, index - 12)
-    return img
+    return img.resize((CELL, CELL), Image.Resampling.NEAREST)
 
 
 def build_sheet(theme: str, palette: dict[str, str]) -> Image.Image:
