@@ -158,6 +158,19 @@ def test_fireball_cooldown_and_onscreen_cap():
     assert len(session.fireballs) == 2
 
 
+def test_fireball_moves_after_firing():
+    """火球被创建后必须随步进移动，不能驻留在原地。"""
+    session = make_session()
+    session.player.power = PowerState.FIRE
+    session.step(InputIntent(fire_pressed=True), DT)
+    ball = session.fireballs[0]
+    start_x = ball.body.x
+    for _ in range(10):
+        session.step(InputIntent(), DT)
+    assert ball.alive
+    assert ball.body.x > start_x
+
+
 # —— UT-G-09～11 顶砖 ——
 
 def _bump_session(power: PowerState = PowerState.SMALL, items=None) -> LevelSession:

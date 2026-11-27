@@ -234,15 +234,20 @@ class LevelSession:
             if i.alive:
                 i.update(dt, world)
 
-        # 4. 平台载人（先于接触结算）
+        # 4. 火球（位移、弹跳、寿命；此前漏更新，导致火球原地驻留）
+        for f in self.fireballs:
+            if f.alive:
+                f.update(dt, world)
+
+        # 5. 平台载人（先于接触结算）
         self._update_props(dt, world)
 
-        # 5. 接触结算
+        # 6. 接触结算
         self._resolve_player_tiles()
         self._resolve_entities()
         self._resolve_fireballs()
 
-        # 6. 计时与镜头
+        # 7. 计时与镜头
         self._tick_time(dt)
         self.camera.follow(self.player.body.x, dt)
 
@@ -274,7 +279,8 @@ class LevelSession:
                     if self.player.body.bottom > r * TILE + (TILE - 28):
                         self._player_hurt("hazard")
 
-    def _can_kick_shell(self, enemy) -> bool:
+    @staticmethod
+    def _can_kick_shell(enemy) -> bool:
         """侧面碰到静止的壳时可踢出（受伤无敌期间同样可踢）。"""
         return isinstance(enemy, Shellbug) and enemy.state == "shell_idle"
 

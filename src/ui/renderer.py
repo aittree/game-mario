@@ -87,6 +87,10 @@ class Renderer:
             "small": self._slice_sheet("player_small.png", 48, 48),
             "big": self._slice_sheet("player_big.png", 48, 72),
         }
+        # 火力形态：整体调色为白衣（经典火焰马里奥），复用 big 的动作帧
+        self._player_frames["fire"] = [
+            self._fire_variant(f) for f in self._player_frames["big"]
+        ]
         self._enemy_frames = self._slice_sheet("enemies.png", 48, 48)
         self._item_frames = self._slice_sheet("items.png", 48, 48)
         self._logo: pygame.Surface | None = None
@@ -101,6 +105,21 @@ class Renderer:
             return image.convert_alpha()
         except pygame.error:               # 无显示设备（离屏测试）时保持原始格式
             return image
+
+    @staticmethod
+    def _fire_variant(image: pygame.Surface) -> pygame.Surface:
+        """把工装裤的蓝色换成白色，区分火力形态（与 gen_sprites 的配色常量一致）。"""
+        out = image.copy()
+        swap = (
+            ((46, 91, 255, 255), (245, 245, 245, 255)),     # BLUE
+            ((27, 59, 184, 255), (196, 198, 208, 255)),     # BLUE_D
+            ((110, 140, 255, 255), (255, 255, 255, 255)),   # BLUE_L
+        )
+        px = pygame.PixelArray(out)
+        for src, dst in swap:
+            px.replace(src, dst)
+        del px
+        return out
 
     def _slice_sheet(self, name: str, frame_w: int, frame_h: int) -> list[pygame.Surface]:
         sheet = self._load_image(name)
@@ -297,9 +316,14 @@ class Renderer:
         # 无敌闪烁：每 60 ms 跳过一次绘制，与逻辑无关
         if snap.player_invincible and int(self.time * 1000) % 120 < 60:
             return
-        sheet = "small" if snap.player_power is PowerState.SMALL else "big"
+        if snap.player_power is PowerState.SMALL:
+            sheet, clip_sheet = "small", "small"
+        elif snap.player_power is PowerState.FIRE:
+            sheet, clip_sheet = "fire", "big"
+        else:
+            sheet, clip_sheet = "big", "big"
         frames = self._player_frames[sheet]
-        index = clip_frame(player_clip(sheet, snap.player_anim), self._player_t)
+        index = clip_frame(player_clip(clip_sheet, snap.player_anim), self._player_t)
         image = frames[min(index, len(frames) - 1)]
         if snap.player_facing_left:
             image = pygame.transform.flip(image, True, False)

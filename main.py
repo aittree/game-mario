@@ -72,6 +72,9 @@ class GameApp:
         pygame.init()
         self.profile: Profile = load_profile()
         self.display = Display(self.profile.settings.fullscreen, APP_NAME)
+        # 关闭文本输入/输入法组词：否则中文输入法会把 X 等字母键当成拼音输入吞掉，
+        # 表现为按键无反应、角色无法移动，ESC 第一次只关掉输入法候选框。
+        pygame.key.stop_text_input()
         try:
             pygame.display.set_icon(
                 pygame.image.load(resource_path("assets", "icon.png")))
@@ -125,6 +128,8 @@ class GameApp:
             self._on_key(event.key)
         elif event.type == pygame.KEYUP:
             self.keymap.keyup(event.key)
+        elif event.type == pygame.WINDOWFOCUSLOST:
+            self.keymap.clear()            # 失焦清空按住状态，避免按键「卡住」
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = self.display.to_canvas(event.pos)
             if pos is not None:
@@ -311,6 +316,7 @@ class GameApp:
         enabled = not self.profile.settings.fullscreen
         self.profile.settings.fullscreen = enabled
         self.display.set_fullscreen(enabled)
+        pygame.key.stop_text_input()          # 重建窗口后再次禁用输入法
         save_profile(self.profile)
 
     def _adjust_volume(self, action: str) -> None:
