@@ -12,7 +12,9 @@ from typing import Protocol
 from ..config import (
     AIR_ACC,
     COYOTE_MS,
+    FIRE_BUFFER_MS,
     FIRE_COOLDOWN_MS,
+    FIRE_MAX_ONSCREEN,
     FRICTION,
     GRAVITY,
     GROUND_ACC,
@@ -61,6 +63,7 @@ class Player(Entity):
         self.invincible_ms = 0.0
         self.transform_ms = 0.0
         self.fire_cd_ms = 0.0
+        self.fire_buffer_ms = 0.0
         self.stomp_chain = 0
         self.dead = False
         self.anim_state = AnimState.IDLE
@@ -85,7 +88,8 @@ class Player(Entity):
 
     # —— 每步推进 ——
 
-    def update(self, dt: float, intent: InputIntent, world: WorldView) -> Contacts:
+    def update(self, dt: float, intent: InputIntent, world: WorldView,
+               fireballs_active: int = 0) -> Contacts:
         if self.dead:
             self._update_dead(dt)
             return Contacts()
@@ -93,7 +97,7 @@ class Player(Entity):
         self._tick_timers(dt)
         self._horizontal(dt, intent)
         self._vertical(dt, intent)
-        self._try_fire(intent)
+        self._try_fire(intent, fireballs_active)
 
         # 按下 ↓ 且为大体型时忽略单向平台（下穿）；小体型保持站立。
         drop = intent.down and self.power is not PowerState.SMALL
@@ -122,6 +126,7 @@ class Player(Entity):
         self.invincible_ms = max(0.0, self.invincible_ms - ms)
         self.transform_ms = max(0.0, self.transform_ms - ms)
         self.fire_cd_ms = max(0.0, self.fire_cd_ms - ms)
+        self.fire_buffer_ms = max(0.0, self.fire_buffer_ms - ms)
         self.buffer_ms = max(0.0, self.buffer_ms - ms)
         self.anim_timer += dt
 
@@ -184,11 +189,18 @@ class Player(Entity):
 
         self.body.vy = min(self.body.vy + GRAVITY * dt, MAX_FALL)
 
-    def _try_fire(self, intent: InputIntent) -> None:
-        if not intent.fire_pressed:
+    def _try_fire(self, intent: InputIntent, fireballs_active: int) -> None:
+        # 屏上已满 2 颗时按键完全无效：不缓冲、不耗冷却、不播声音（与 SMB1 一致）。
+        if intent.fire_pressed and fireballs_active < FIRE_MAX_ONSCREEN:
+            self.fire_buffer_ms = FIRE_BUFFER_MS
+        if self.fire_buffer_ms <= 0:
             return
         if self.power is not PowerState.FIRE or self.fire_cd_ms > 0:
             return
+        if fireballs_active >= FIRE_MAX_ONSCREEN:
+            self.fire_buffer_ms = 0.0      # 缓冲期间屏被占满：作废，不排队
+            return
+        self.fire_buffer_ms = 0.0
         self.fire_cd_ms = FIRE_COOLDOWN_MS
         cx = self.body.x + self.body.w / 2
         cy = self.body.y + self.body.h * 0.4

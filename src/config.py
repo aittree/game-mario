@@ -43,6 +43,7 @@ JUMP_BUFFER_MS = 130
 INVINCIBLE_MS = 1200
 TRANSFORM_MS = 300        # 变形期间免伤
 FIRE_COOLDOWN_MS = 180
+FIRE_BUFFER_MS = 150      # 冷却期间按下 X 的缓冲：冷却结束后自动补发，连按更跟手
 FIRE_MAX_ONSCREEN = 2
 FIRE_SPEED = 520.0
 FIRE_BOUNCES = 2          # 落地弹跳 2 次后消失；撞墙只反向，不计数

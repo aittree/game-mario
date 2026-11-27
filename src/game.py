@@ -18,7 +18,9 @@ from .config import (
     FIRE_MAX_ONSCREEN,
     FLITTER_AMP,
     FLITTER_PERIOD,
+    GRAVITY,
     LIVES_START,
+    MAX_FALL,
     RESPAWN_INVINCIBLE_MS,
     SCORE_BRICK,
     SCORE_BUMP,
@@ -38,7 +40,7 @@ from .entities.enemies import Flitter, PatrolShroom, PipeBloom, Shellbug
 from .entities.items import FireFlower, Fireball, Mushroom
 from .entities.player import Player, push_out_of_tiles
 from .entities.props import Checkpoint, Goal, MovingPlatform
-from .physics import overlap, span
+from .physics import Body, overlap, span
 from .tilemap import LevelError, TileMap
 
 
@@ -55,6 +57,30 @@ class GameEvent:
     def __init__(self, kind: str, data: dict | None = None):
         self.kind = kind            # coin/stomp/brick_break/bump/powerup/powerdown/fire/death/checkpoint/oneup/clear/gameover/jump
         self.data = data
+
+
+class _Knocked:
+    """被火球/滑行壳击飞的敌人：上下翻转、弹起后掉出画面（纯表现，不参与碰撞）。"""
+    is_knocked = True
+
+    def __init__(self, kind: str, body: Body, direction: int):
+        self.kind = kind
+        self.body = Body(body.x, body.y, body.w, body.h)
+        self.body.vx = direction * 70.0
+        self.body.vy = -380.0
+        self.facing = direction
+        self.anim_state = AnimState.IDLE
+        self.anim_frame = 0
+        self.alive = True
+        self.timer_ms = 1600.0
+
+    def update(self, dt: float, max_y: float) -> None:
+        self.timer_ms -= dt * 1000
+        self.body.vy = min(self.body.vy + GRAVITY * dt, MAX_FALL)
+        self.body.x += self.body.vx * dt
+        self.body.y += self.body.vy * dt
+        if self.timer_ms <= 0 or self.body.y > max_y:
+            self.alive = False
 
 
 class LevelSnapshot:
@@ -134,6 +160,8 @@ class LevelSession:
         self.enemies: list = []
         self.items: list = []
         self.fireballs: list[Fireball] = []
+        self.knocked: list[_Knocked] = []
+        self.shell_chain = 0
         self._build_world()
 
     def _load_raw(self) -> dict:
@@ -167,6 +195,8 @@ class LevelSession:
         self.enemies = []
         self.items = []
         self.fireballs = []
+        self.knocked = []
+        self.shell_chain = 0
         self._build_world()
         return self
 
@@ -191,6 +221,8 @@ class LevelSession:
             elif isinstance(ent, (MovingPlatform, Checkpoint, Goal)):
                 self.props.append(ent)
         self.fireballs = []
+        self.knocked: list[_Knocked] = []
+        self.shell_chain = 0
         self.goal = next((p for p in self.props if isinstance(p, Goal)), None)
         if not hasattr(self, "camera"):             # 重载时复用，保留旧关卡宽度无影响
             self.camera = Camera(self.tilemap.width_px)
@@ -216,7 +248,7 @@ class LevelSession:
                           self.player.body.x, self.tilemap.width_px)
 
         # 1. 玩家
-        contacts = self.player.update(dt, intent, world)
+        contacts = self.player.update(dt, intent, world, len(self.fireballs))
         self._drain_player_output()
         for col, row in contacts.head_tiles:
             self.handle_bump(col, row)
@@ -238,6 +270,11 @@ class LevelSession:
         for f in self.fireballs:
             if f.alive:
                 f.update(dt, world)
+
+        # 4.5 被火球/滑行壳击飞的敌人：翻倒弹起后掉出画面（纯表现）
+        for k in self.knocked:
+            if k.alive:
+                k.update(dt, self.tilemap.height_px + 200)
 
         # 5. 平台载人（先于接触结算）
         self._update_props(dt, world)
@@ -264,6 +301,7 @@ class LevelSession:
         self.enemies = [e for e in self.enemies if e.alive]
         self.items = [i for i in self.items if i.alive]
         self.fireballs = [f for f in self.fireballs if f.alive]
+        self.knocked = [k for k in self.knocked if k.alive]
 
     # —— 接触结算 ——
 
@@ -316,6 +354,9 @@ class LevelSession:
                 self._player_hurt("enemy")
 
         # 滑行壳撞其它敌人
+        if not any(isinstance(e, Shellbug) and e.state == "shell_slide"
+                   for e in self.enemies):
+            self.shell_chain = 0              # 没有滑行壳时重置连击
         for shell in (e for e in self.enemies
                       if isinstance(e, Shellbug) and e.state == "shell_slide"):
             for other in self.enemies:
@@ -323,7 +364,10 @@ class LevelSession:
                     continue
                 if isinstance(other, PipeBloom) and not other.visible:
                     continue                  # 隐藏的水管花不应被隔空击杀
-                other.alive = False
+                self._knock_enemy(other, shell.dir)
+                self.score += stomp_score(self.shell_chain)
+                self.shell_chain += 1
+                self.events.append(GameEvent("stomp", {"kind": other.kind, "cells": other.aabb}))
                 self.score += SCORE_FIREKILL
                 self.events.append(GameEvent("stomp", {"kind": other.kind, "cells": other.aabb}))
 
@@ -346,6 +390,11 @@ class LevelSession:
             if isinstance(p, Goal) and overlap(player.body, p.body):
                 p.touch()   # 终点由 step 末尾统一触发，避免这里重复结算
 
+    def _knock_enemy(self, enemy, direction: int) -> None:
+        """把敌人替换为「翻倒弹起掉落」的表现实体，并标记死亡（SMB1 的击飞表现）。"""
+        self.knocked.append(_Knocked(enemy.kind, enemy.body, direction))
+        enemy.alive = False
+
     def _resolve_fireballs(self) -> None:
         for ball in self.fireballs:
             if not ball.alive:
@@ -353,7 +402,8 @@ class LevelSession:
             for e in self.enemies:
                 if not e.alive or not overlap(ball.body, e.body):
                     continue
-                e.alive = False
+                direction = 1 if ball.body.vx >= 0 else -1
+                self._knock_enemy(e, direction)
                 ball.alive = False
                 self.score += SCORE_FIREKILL
                 self.events.append(GameEvent("firekill", {"kind": e.kind, "cells": e.aabb}))
@@ -385,6 +435,7 @@ class LevelSession:
         self.death_ms += dt * 1000
         self.player.update(dt, InputIntent(),
                            WorldView(self.tilemap, 0, 0, self.tilemap.width_px))
+        self._drain_player_events()      # 死亡事件在进入 DYING 前产生，必须在这里消费
         if self.death_ms < DEATH_MS:
             return
         self.lives -= 1
@@ -428,10 +479,13 @@ class LevelSession:
             self.lives += 1
             self.events.append(GameEvent("oneup"))
 
-    def _drain_player_output(self) -> None:
+    def _drain_player_events(self) -> None:
         for name in self.player.events:
             self.events.append(GameEvent(name))
         self.player.events.clear()
+
+    def _drain_player_output(self) -> None:
+        self._drain_player_events()
         for req in self.player.spawn_requests:
             if req[0] == "fireball" and len(self.fireballs) < FIRE_MAX_ONSCREEN:
                 self.fireballs.append(Fireball(req[1], req[2], req[3]))
@@ -487,7 +541,8 @@ class LevelSession:
     def snapshot(self) -> LevelSnapshot:
         player = self.player
         entities: list[tuple] = []
-        for ent in (*self.enemies, *self.items, *self.props, *self.fireballs):
+        for ent in (*self.enemies, *self.items, *self.props, *self.fireballs,
+                    *self.knocked):
             entities.append((ent.kind, ent.body.x, ent.body.y, ent.body.w, ent.body.h,
                              ent.anim_state, ent.anim_frame, ent.facing,
                              self._entity_extra(ent)))
@@ -517,6 +572,8 @@ class LevelSession:
     @staticmethod
     def _entity_extra(ent) -> dict | None:
         """表现层需要的少量只读状态；模型逻辑不依赖它。"""
+        if getattr(ent, "is_knocked", False):
+            return {"dir": ent.facing, "flip": True}
         kind = ent.kind
         if kind == "shellbug":
             return {"dir": ent.dir, "state": ent.state}

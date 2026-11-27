@@ -242,6 +242,8 @@ class Renderer:
             if kind in ENEMY_ANIMS or kind == "shellbug":
                 key = self._enemy_key(kind, extra)
                 frame = self._enemy_frames[clip_frame(ENEMY_ANIMS[key], self.time)]
+                if extra and extra.get("flip"):
+                    frame = pygame.transform.flip(frame, False, True)   # 被击飞：上下翻转
                 if extra and extra.get("squash"):
                     # 被踩扁：纵向压到一半，底边对齐，做出“拍扁”观感（无需额外美术帧）
                     frame = pygame.transform.scale(

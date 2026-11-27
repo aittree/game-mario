@@ -410,6 +410,10 @@ class GameApp:
             steps += 1
         if steps == MAX_SUBSTEPS:
             self.accumulator = 0.0                    # 丢弃积压，避免穿透地形
+        # 死亡时停掉 BGM，重生（重新回到 RUNNING）后恢复关卡 BGM
+        if (self.session.state is SessionState.RUNNING
+                and self.audio.current_bgm is None):
+            self.audio.play_bgm(self.levels[self.level_index].theme)
         self._consume_events()
         self.effects.update(dt)
         self.renderer.update(dt)
@@ -429,6 +433,8 @@ class GameApp:
             self.effects.on_model_hook(hook, snap)
         self.session.effects_hooks.clear()
         for event in self.session.take_events():
+            if event.kind == "death":
+                self.audio.stop_bgm()                 # 死亡即停 BGM，只留死亡 jingle
             sound = SFX_BY_EVENT.get(event.kind)
             if sound:
                 self.audio.play(sound)

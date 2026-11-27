@@ -140,6 +140,7 @@ def test_fireball_kills_shroom():
     session.step(InputIntent(), DT)                         # 生成火球
     step(session, InputIntent(), 2)
     assert session.enemies == []
+    assert session.knocked                              # 击飞后进入翻倒掉落表现
     assert session.score >= SCORE_FIREKILL
 
 
@@ -169,6 +170,59 @@ def test_fireball_moves_after_firing():
         session.step(InputIntent(), DT)
     assert ball.alive
     assert ball.body.x > start_x
+
+
+def test_fire_input_buffer():
+    """冷却期间按下 X 会被记住，冷却结束后自动补发一颗。"""
+    session = make_session()
+    session.player.power = PowerState.FIRE
+    session.step(InputIntent(fire_pressed=True), DT)
+    assert len(session.fireballs) == 1
+    session.step(InputIntent(fire_pressed=True), DT)        # 冷却中按下 → 缓冲
+    assert len(session.fireballs) == 1
+    session.player.fire_cd_ms = 0.0
+    session.step(InputIntent(), DT)                          # 没有新按键，靠缓冲补发
+    assert len(session.fireballs) == 2
+
+
+def test_fire_at_screen_cap_does_not_emit_sound():
+    """屏上已满 2 颗时按 X 应完全无效：不再播 fire 音效。"""
+    session = make_session()
+    session.player.power = PowerState.FIRE
+    session.step(InputIntent(fire_pressed=True), DT)
+    session.player.fire_cd_ms = 0.0
+    session.step(InputIntent(fire_pressed=True), DT)
+    assert len(session.fireballs) == 2
+    session.take_events()
+    session.player.fire_cd_ms = 0.0
+    session.step(InputIntent(fire_pressed=True), DT)
+    assert "fire" not in event_kinds(session)
+
+
+def test_sliding_shell_knocks_enemy_with_score():
+    """滑行壳撞敌人：翻倒掉落 + 加分 + 音效事件。"""
+    session = make_session(entities=[shroom(8)])
+    shell = Shellbug(4, 16)
+    shell.state = "shell_slide"
+    shell.dir = 1
+    shell.body.x = session.enemies[0].body.x - 40
+    session.enemies.append(shell)
+    score_before = session.score
+    step(session, InputIntent(), 20)
+    assert session.enemies[0] is shell              # 只剩壳
+    assert session.score > score_before
+    assert session.knocked
+    assert "stomp" in event_kinds(session)
+
+
+def test_death_event_emitted_while_dying():
+    """死亡事件必须在 DYING 期间被消费，否则死亡音效永远不播。"""
+    session = make_session()
+    session.player.power = PowerState.SMALL
+    assert session.player.hurt("enemy") == "die"
+    session.state = SessionState.DYING
+    session.step(InputIntent(), DT)
+    assert "death" in event_kinds(session)
 
 
 # —— UT-G-09～11 顶砖 ——
