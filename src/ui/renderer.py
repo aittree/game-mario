@@ -223,6 +223,10 @@ class Renderer:
             if kind in ENEMY_ANIMS or kind == "shellbug":
                 key = self._enemy_key(kind, extra)
                 frame = self._enemy_frames[clip_frame(ENEMY_ANIMS[key], self.time)]
+                if extra and extra.get("squash"):
+                    # 被踩扁：纵向压到一半，底边对齐，做出“拍扁”观感（无需额外美术帧）
+                    frame = pygame.transform.scale(
+                        frame, (frame.get_width(), max(1, frame.get_height() // 2)))
                 flip = bool(extra and extra.get("dir", -1) > 0)
                 self._blit_bottom(surface, frame, x, y, w, h, cam, flip)
             elif kind in ITEM_ANIMS:

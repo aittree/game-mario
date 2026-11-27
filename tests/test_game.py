@@ -7,6 +7,8 @@ import pytest
 
 from src.config import PHYSICS_DT, RESPAWN_INVINCIBLE_MS, SCORE_FIREKILL, TILE
 from src.entities.base import InputIntent, PowerState
+from src.entities.enemies import Shellbug
+from src.entities.items import Mushroom
 from src.game import LevelSession, SessionState
 from src.storage import Profile
 
@@ -99,7 +101,7 @@ def test_stomp_shroom_scores_and_removes_it():
     assert session.player.stomp_chain == 1
     assert session.player.body.vy < 0
     assert "stomp" in event_kinds(session)
-    step(session, InputIntent(), 40)                        # 等待 squash 结束
+    step(session, InputIntent(), 50)                        # 等待 squash（350ms）结束
     assert session.enemies == []
 
 
@@ -207,6 +209,38 @@ def test_question_block_releases_mushroom():
     assert session.tilemap.tile_at(4, 14) == "X"
     assert session.score == 50
     assert any(i.kind == "mushroom" for i in session.items)
+
+
+def test_mushroom_moves_right_after_emerging():
+    """顶出后应升到砖顶再向右走，而不是卡在实心砖里被弹向左。"""
+    tiles = make_tiles()
+    line = list(tiles[14])
+    line[4:11] = "X" * 7               # 一段实心砖平台，蘑菇从最左格升起
+    tiles[14] = "".join(line)
+    session = make_session(tiles, spawn=(2, 16))
+    session.items.append(Mushroom(4, 14))
+    mushroom = session.items[-1]
+    for _ in range(120):               # 0.4 s 升起 + 0.6 s 行走
+        session.step(InputIntent(), DT)
+    assert mushroom.dir == 1
+    assert mushroom.body.x > 4 * TILE + 4
+
+
+def test_stomp_idle_shell_launches_it():
+    """踩静止壳应把它踢出去（按玩家朝向），而不是原地反复弹跳。"""
+    session = make_session(make_tiles(), spawn=(2, 16))
+    shell = Shellbug(3, 16)
+    shell.state = "shell_idle"
+    shell.body.h = 24
+    shell.body.y += 10
+    session.enemies.append(shell)
+    player = session.player
+    player.body.x = shell.body.x
+    player.body.y = shell.body.y - player.body.h + 2   # 轻微压入壳顶，确保 AABB 重叠
+    player.body.vy = 120.0
+    session.step(InputIntent(), DT)
+    assert shell.state == "shell_slide"
+    assert shell.dir == player.facing
 
 
 # —— UT-G-12～13 金币 ——

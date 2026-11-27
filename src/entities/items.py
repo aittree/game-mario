@@ -12,6 +12,8 @@ from ..config import (
 from ..physics import move_and_collide
 from .base import Entity, WorldView, place_at
 
+EMERGE_SPEED = 100.0   # 升起速度：400 ms 恰好升满 40 px（一格），确保完全脱离砖块
+
 
 class Mushroom(Entity):
     kind = "mushroom"
@@ -27,7 +29,7 @@ class Mushroom(Entity):
         self.anim_timer += dt
         if self.emerge_ms > 0:                       # 从块中升起，期间不移动不碰撞
             self.emerge_ms -= dt * 1000
-            self.body.y -= 40 * dt
+            self.body.y -= EMERGE_SPEED * dt
             return
         self.body.vx = self.dir * self.SPEED
         self.body.vy = min(self.body.vy + GRAVITY * dt, MAX_FALL)
@@ -50,7 +52,7 @@ class FireFlower(Entity):
         self.anim_timer += dt
         if self.emerge_ms > 0:
             self.emerge_ms -= dt * 1000
-            self.body.y -= 40 * dt
+            self.body.y -= EMERGE_SPEED * dt
             return
         self.life_ms -= dt * 1000
         if self.life_ms <= 0:

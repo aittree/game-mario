@@ -270,19 +270,32 @@ class LevelSession:
                     self.tilemap.take_coin(c, r)
                     self._add_coin(1)
                 elif self.tilemap.hazard(c, r):
-                    self._player_hurt("hazard")
+                    # 尖刺图形只占格内下方 28 px，脚底未进入可视尖刺高度不算受伤
+                    if self.player.body.bottom > r * TILE + (TILE - 28):
+                        self._player_hurt("hazard")
 
     def _can_kick_shell(self, enemy) -> bool:
-        """侧面碰到静止的壳时可踢出；自身处于受伤无敌期间不可。"""
-        return (isinstance(enemy, Shellbug) and enemy.state == "shell_idle"
-                and self.player.invincible_ms == 0)
+        """侧面碰到静止的壳时可踢出（受伤无敌期间同样可踢）。"""
+        return isinstance(enemy, Shellbug) and enemy.state == "shell_idle"
 
     def _resolve_entities(self) -> None:
         player = self.player
         for e in self.enemies:
-            if not e.alive or not overlap(player.body, e.body):
+            if not e.alive:
                 continue
+            if getattr(e, "squash_ms", 0.0) > 0:
+                continue                      # 已被踩扁，等待消失，不再参与碰撞与计分
+            touching = overlap(player.body, e.body)
+            if isinstance(e, Shellbug) and e.kick_grace and not touching:
+                e.kick_grace = False          # 壳已与玩家分离，恢复常规判定
+            if not touching:
+                continue
+            if isinstance(e, Shellbug) and e.kick_grace:
+                continue                      # 刚踢出的壳尚未离开玩家，不结算伤害
+            was_shell_idle = isinstance(e, Shellbug) and e.state == "shell_idle"
             if player.can_stomp(e) and e.on_stomp():
+                if was_shell_idle:
+                    e.kick(player.facing)     # 踩静止壳：按玩家朝向把它踢出去
                 player.bounce()
                 # 把脚底贴到敌人头顶：否则弹起后的下一帧仍然重叠，
                 # can_stomp 因 vy<0 返回 False，会被同一只敌人判定为受伤。
@@ -302,6 +315,8 @@ class LevelSession:
             for other in self.enemies:
                 if other is shell or not other.alive or not overlap(shell.body, other.body):
                     continue
+                if isinstance(other, PipeBloom) and not other.visible:
+                    continue                  # 隐藏的水管花不应被隔空击杀
                 other.alive = False
                 self.score += SCORE_FIREKILL
                 self.events.append(GameEvent("stomp", {"kind": other.kind, "cells": other.aabb}))
@@ -500,7 +515,7 @@ class LevelSession:
         if kind == "shellbug":
             return {"dir": ent.dir, "state": ent.state}
         if kind in ("patrol_shroom", "flitter"):
-            return {"dir": ent.dir}
+            return {"dir": ent.dir, "squash": ent.squash_ms > 0}
         if kind == "pipe_bloom":
             return {"visible": ent.visible}
         if kind == "checkpoint":

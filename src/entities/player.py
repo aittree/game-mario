@@ -216,15 +216,15 @@ class Player(Entity):
     # —— 踩踏、受伤、变形、死亡 ——
 
     def can_stomp(self, enemy: _Hittable) -> bool:
-        """玩家下落、脚部进入敌人头上 12 px 带，且水平重叠 ≥ 6 px。"""
+        """玩家下落、脚底落在敌人上半身内，且水平重叠 ≥ 4 px（放宽擦边容错）。"""
         if self.body.vy <= 0:
             return False
         top = enemy.body.y
-        if not (top - 12 <= self.body.bottom <= top + 12):
+        if not (top - 12 <= self.body.bottom <= top + enemy.body.h * 0.6):
             return False
         ox = (min(self.body.x + self.body.w, enemy.body.x + enemy.body.w)
               - max(self.body.x, enemy.body.x))
-        return ox >= 6
+        return ox >= 4
 
     def bounce(self) -> None:
         self.body.vy = -STOMP_BOUNCE

@@ -17,7 +17,6 @@ from ..config import (
     MAX_FALL,
     SHELLBUG_SPEED,
     SHELL_SPEED,
-    SHELL_WALL_LIMIT,
     SHROOM_SPEED,
     TILE,
 )
@@ -58,7 +57,7 @@ class PatrolShroom(Entity):
         return tmap.solid(col, row) or tmap.semisolid(col, row)
 
     def on_stomp(self) -> bool:
-        self.squash_ms = 250
+        self.squash_ms = 350
         self.body.vx = 0
         return True
 
@@ -74,7 +73,7 @@ class Shellbug(Entity):
         super().__init__(x, y, self.W, self.H)
         self.dir = -1
         self.state: str = "walk"
-        self.wall_hits = 0
+        self.kick_grace = False        # 踢出后与玩家分离前免伤，避免一碰就掉血
 
     def update(self, dt: float, world: WorldView) -> None:
         self.anim_timer += dt
@@ -85,11 +84,6 @@ class Shellbug(Entity):
         contacts = move_and_collide(self.body, world.tilemap, dt)
 
         if contacts.left or contacts.right:
-            if self.state == "shell_slide":
-                self.wall_hits += 1
-                if self.wall_hits >= SHELL_WALL_LIMIT:
-                    self.alive = False
-                    return
             self.dir *= -1
         elif self.state == "walk" and contacts.ground and not self._ground_ahead(world.tilemap):
             self.dir *= -1
@@ -107,12 +101,14 @@ class Shellbug(Entity):
             self.body.y += 10
         elif self.state == "shell_slide":
             self.state = "shell_idle"          # 踩滑行的壳 = 刹车
+        self.kick_grace = False
         return True
 
     def kick(self, direction: int) -> None:
         """玩家侧碰静止壳：壳沿远离玩家的方向滑行。"""
         if self.state == "shell_idle":
-            self.state, self.dir, self.wall_hits = "shell_slide", direction, 0
+            self.state, self.dir = "shell_slide", direction
+            self.kick_grace = True
 
 
 class Flitter(Entity):
@@ -127,8 +123,14 @@ class Flitter(Entity):
         self.amp, self.period = amp, period
         self.t = 0.0
         self.dir = -1
+        self.squash_ms = 0.0
 
     def update(self, dt: float, world: WorldView) -> None:
+        if self.squash_ms > 0:                 # 被踩后压扁停留，随后消失
+            self.squash_ms -= dt * 1000
+            if self.squash_ms <= 0:
+                self.alive = False
+            return
         # 飞行体不走瓦片碰撞，按参数化轨迹运动（关卡设计不得把它放在墙体内）
         self.t += dt
         self.body.x = self.anchor_x + self.dir * FLITTER_SPEED * self.t
@@ -139,7 +141,8 @@ class Flitter(Entity):
             self.anchor_x = self.body.x - self.dir * FLITTER_SPEED * self.t
 
     def on_stomp(self) -> bool:
-        return False          # 飞行体不可踩
+        self.squash_ms = 350
+        return True
 
 
 class PipeBloom(Entity):
