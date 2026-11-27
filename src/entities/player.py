@@ -290,7 +290,7 @@ class Player(Entity):
         self.anim_timer = 0.0
         self.body.vx = 0.0
         self.body.vy = 0.0
-        self.death_hold_ms = DEATH_HOLD_MS      # 先在原地/空中暂留，再上弹坠落
+        self.death_hold_ms = DEATH_HOLD_MS      # 先在空中暂留，再上弹坠落
         self.events.append("death")
 
     def _update_dead(self, dt: float) -> None:

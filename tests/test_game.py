@@ -5,7 +5,7 @@
 
 import pytest
 
-from src.config import PHYSICS_DT, RESPAWN_INVINCIBLE_MS, SCORE_FIREKILL, TILE
+from src.config import CANVAS_H, PHYSICS_DT, RESPAWN_INVINCIBLE_MS, SCORE_FIREKILL, TILE
 from src.entities.base import InputIntent, PowerState
 from src.entities.enemies import Shellbug
 from src.entities.items import Mushroom
@@ -224,6 +224,22 @@ def test_sliding_shell_knocks_enemy_with_score():
     assert session.score > score_before
     assert session.knocked
     assert "stomp" in event_kinds(session)
+
+
+def test_pit_death_is_visible_on_screen():
+    """掉坑在脚底越过画面底边时触发：此时角色仍在画面内，死亡动画可见。"""
+    rows = ["." * 20 for _ in range(18)]
+    rows[17] = "#" * 6 + "." * 3 + "#" * 11        # 第 6~8 列是坑
+    data = {"id": "t", "name": "测试", "theme": "grass", "cols": 20, "rows": 18,
+            "time": 300, "spawn": [4, 16], "tiles": rows, "entities": [], "items": {}}
+    session = LevelSession.from_dict(data, Profile(), 3)
+    for _ in range(400):
+        session.step(InputIntent(right=True), PHYSICS_DT)
+        if session.state is SessionState.DYING:
+            break
+    assert session.state is SessionState.DYING
+    assert session.player.body.bottom <= CANVAS_H + 8   # 触发时还没完全离开画面
+    assert session.player.death_hold_ms > 0             # 保留可见的暂留 + 上弹
 
 
 def test_death_event_emitted_while_dying():

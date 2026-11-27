@@ -11,6 +11,7 @@ from enum import Enum, auto
 
 from .camera import Camera
 from .config import (
+    CANVAS_H,
     CANVAS_W,
     CLEAR_SLIDE_MS,
     COINS_PER_LIFE,
@@ -289,7 +290,8 @@ class LevelSession:
         self.camera.follow(self.player.body.x, dt)
 
         # 7. 死亡与通关判定
-        if self.player.body.y > self.tilemap.height_px + 200:
+        # 脚底越过画面底边即判定掉坑：此时角色仍在画面内，死亡动画可见
+        if self.player.body.bottom > CANVAS_H:
             self.player.kill()
         if self.player.dead and self.state is SessionState.RUNNING:
             self.state = SessionState.DYING
